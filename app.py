@@ -900,27 +900,6 @@ with col3:
 # DISCLAIMER
 # ============================================================
 
-st.markdown(
-    """
-    <div class="warning-box">
-
-    ⚠️ <b>Engineering Day Prototype Notice</b>
-
-    <br><br>
-
-    The current version uses illustrative mathematical
-    relationships and sample fuel factors.
-
-    It is designed to demonstrate the complete system flow.
-
-    A production system would use real vessel datasets,
-    a trained Machine Learning model and a formal
-    quantum-inspired optimization algorithm.
-
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
 
 # ============================================================
