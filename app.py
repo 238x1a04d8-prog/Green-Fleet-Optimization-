@@ -2,6 +2,132 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import sqlite3
+from datetime import datetime
+
+
+# ============================================================
+# SQLITE DATABASE
+# ============================================================
+
+DB_NAME = "fleet_database.db"
+
+def init_database():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            vessel_type TEXT NOT NULL,
+            capacity REAL NOT NULL,
+            speed REAL NOT NULL,
+            distance REAL NOT NULL,
+            cargo REAL NOT NULL,
+            current_fuel TEXT NOT NULL,
+            fuel_price REAL NOT NULL,
+            weather TEXT NOT NULL,
+            predicted_fuel REAL NOT NULL,
+            initial_cost REAL NOT NULL,
+            initial_co2 REAL NOT NULL,
+            optimized_fuel_type TEXT,
+            optimized_speed REAL,
+            optimized_fuel REAL,
+            optimized_cost REAL,
+            optimized_co2 REAL,
+            fuel_saving REAL,
+            cost_saving REAL,
+            co2_reduction REAL
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def save_prediction(
+    vessel_type, capacity, speed, distance, cargo,
+    fuel_type, fuel_price, weather,
+    initial_fuel, initial_cost, initial_co2,
+    best_solution, fuel_saving, cost_saving, co2_reduction
+):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO predictions (
+            created_at, vessel_type, capacity, speed, distance, cargo,
+            current_fuel, fuel_price, weather,
+            predicted_fuel, initial_cost, initial_co2,
+            optimized_fuel_type, optimized_speed, optimized_fuel,
+            optimized_cost, optimized_co2,
+            fuel_saving, cost_saving, co2_reduction
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        vessel_type, capacity, speed, distance, cargo,
+        fuel_type, fuel_price, weather,
+        initial_fuel, initial_cost, initial_co2,
+        best_solution["fuel"],
+        best_solution["speed"],
+        best_solution["fuel_consumption"],
+        best_solution["cost"],
+        best_solution["co2"],
+        fuel_saving,
+        cost_saving,
+        co2_reduction
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def load_prediction_history(limit=20):
+    conn = sqlite3.connect(DB_NAME)
+
+    query = """
+        SELECT
+            id AS ID,
+            created_at AS "Date & Time",
+            vessel_type AS "Vessel",
+            capacity AS "Capacity (t)",
+            speed AS "Speed (knots)",
+            distance AS "Distance (km)",
+            cargo AS "Cargo (t)",
+            current_fuel AS "Current Fuel",
+            weather AS "Weather",
+            predicted_fuel AS "Predicted Fuel (t)",
+            initial_cost AS "Initial Cost (₹)",
+            initial_co2 AS "Initial CO₂ (t)",
+            optimized_fuel_type AS "Optimized Fuel",
+            optimized_speed AS "Optimized Speed",
+            optimized_fuel AS "Optimized Fuel (t)",
+            optimized_cost AS "Optimized Cost (₹)",
+            optimized_co2 AS "Optimized CO₂ (t)",
+            fuel_saving AS "Fuel Saving (%)",
+            cost_saving AS "Cost Saving (%)",
+            co2_reduction AS "CO₂ Reduction (%)"
+        FROM predictions
+        ORDER BY id DESC
+        LIMIT ?
+    """
+
+    df = pd.read_sql_query(query, conn, params=(limit,))
+    conn.close()
+    return df
+
+
+def clear_prediction_history():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM predictions")
+    conn.commit()
+    conn.close()
+
+
+init_database()
 
 # ============================================================
 # PAGE CONFIGURATION
@@ -549,6 +675,30 @@ if predict_button:
             / initial_co2
         ) * 100
 
+        # ====================================================
+        # SAVE RESULT TO DATABASE
+        # ====================================================
+
+        save_prediction(
+            vessel_type,
+            capacity,
+            speed,
+            distance,
+            cargo,
+            fuel_type,
+            fuel_price,
+            weather,
+            initial_fuel,
+            initial_cost,
+            initial_co2,
+            best_solution,
+            fuel_saving,
+            cost_saving,
+            co2_reduction
+        )
+
+        st.success("✅ Prediction and optimization result saved to database.")
+
 
         # ====================================================
         # RECOMMENDATION
@@ -895,6 +1045,40 @@ with col3:
         unsafe_allow_html=True
     )
 
+
+
+# ============================================================
+# DATABASE HISTORY
+# ============================================================
+
+st.markdown(
+    '<div class="section-title">🗄️ Prediction History</div>',
+    unsafe_allow_html=True
+)
+
+history_df = load_prediction_history()
+
+if not history_df.empty:
+    hcol1, hcol2 = st.columns([5, 1])
+
+    with hcol1:
+        st.markdown(
+            '<div class="small-text">Latest saved vessel predictions and optimization results</div>',
+            unsafe_allow_html=True
+        )
+
+    with hcol2:
+        if st.button("🗑️ Clear History", use_container_width=True):
+            clear_prediction_history()
+            st.rerun()
+
+    st.dataframe(
+        history_df,
+        use_container_width=True,
+        hide_index=True
+    )
+else:
+    st.info("No prediction history yet. Click 🚀 Predict & Optimize to save your first result.")
 
 # ============================================================
 # DISCLAIMER
