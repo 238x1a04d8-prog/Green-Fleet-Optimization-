@@ -134,7 +134,7 @@ init_database()
 # ============================================================
 
 st.set_page_config(
-    page_title="Signal Sync | Green Fleet Optimization",
+    page_title="Quantum Predictors | Green Fleet Optimization",
     page_icon="🚢",
     layout="wide"
 )
@@ -227,7 +227,7 @@ st.markdown("""
 # ============================================================
 
 st.markdown(
-    '<div class="main-title">🚢 Signal Sync</div>',
+    '<div class="main-title">⚛️ Quantum Predictors</div>',
     unsafe_allow_html=True
 )
 
@@ -1096,7 +1096,7 @@ st.markdown(
     <hr>
 
     <center>
-    <b>Signal Sync</b><br>
+    <b>Quantum Predictors</b><br>
     SIH26138 — Quantum-Inspired Fuel Consumption Prediction
     and Green Fleet Optimization<br><br>
     Engineering Day 2026
