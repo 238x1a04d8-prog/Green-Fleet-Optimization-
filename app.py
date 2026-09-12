@@ -874,23 +874,4 @@ if not segment_history.empty:
 else:
     st.info("No dynamic voyage results saved yet.")
 
-# ============================================================
-# IMPORTANT NOTE
-# ============================================================
 
-st.markdown("""
-<div class="warning-box">
-<b>Prototype note:</b> fuel prices, emission factors, resistance relationships and simulated weather values in this application
-are demonstration assumptions. For an operational maritime system, connect validated vessel telemetry/GPS/AIS and approved
-weather/ocean data, and validate the model with real voyage data. This dashboard is a decision-support prototype, not a certified navigation system.
-</div>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<br><hr>
-<center>
-<b>⚛️ Quantum Predictors</b><br>
-Quantum-Inspired Fuel Consumption Prediction & Green Fleet Optimization<br>
-Dynamic Voyage Monitoring • Engineering Day / SIH Prototype
-</center>
-""", unsafe_allow_html=True)
