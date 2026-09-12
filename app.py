@@ -5,10 +5,10 @@ import matplotlib.pyplot as plt
 import sqlite3
 from datetime import datetime
 import math
-import pydeck as pdk
 
 # ============================================================
 # QUANTUM PREDICTORS - GREEN FLEET OPTIMIZATION
+# ============================================================
 # Integrated prototype:
 # 1. Fuel prediction
 # 2. Available-fuel constrained optimization
@@ -18,18 +18,154 @@ import pydeck as pdk
 # 6. Live voyage tracking simulation
 # 7. Weather and operational alerts
 # 8. SQLite history
-# 9. Interactive voyage map
-# 10. Changeable destination with automatic coordinates
+# 9. Interactive worldwide voyage map
+# 10. Worldwide destination selection
+# 11. Route line visualization
+# 12. Clear prediction + voyage history
 # ============================================================
 
 DB_NAME = "fleet_database.db"
+
+# ============================================================
+# WORLDWIDE PORT DATABASE
+# ============================================================
+
+WORLD_PORTS = {
+    # INDIA
+    "Chennai, India": (13.0827, 80.2707),
+    "Mumbai, India": (19.0760, 72.8777),
+    "Kochi, India": (9.9312, 76.2673),
+    "Visakhapatnam, India": (17.6868, 83.2185),
+    "Kolkata, India": (22.5726, 88.3639),
+    "Kandla, India": (23.0333, 70.2167),
+    "Mundra, India": (22.8390, 69.7210),
+    "Goa, India": (15.4909, 73.8278),
+    "Tuticorin, India": (8.7642, 78.1348),
+    "Paradip, India": (20.2961, 86.7025),
+
+    # ASIA
+    "Singapore": (1.2903, 103.8519),
+    "Port Klang, Malaysia": (3.0000, 101.4000),
+    "Tanjung Pelepas, Malaysia": (1.3600, 103.5500),
+    "Jakarta, Indonesia": (-6.1040, 106.8800),
+    "Surabaya, Indonesia": (-7.2050, 112.7300),
+    "Colombo, Sri Lanka": (6.9271, 79.8612),
+    "Dubai, UAE": (25.2760, 55.2962),
+    "Abu Dhabi, UAE": (24.4539, 54.3773),
+    "Jebel Ali, UAE": (24.9857, 55.0273),
+    "Doha, Qatar": (25.2854, 51.5310),
+    "Dammam, Saudi Arabia": (26.4207, 50.0888),
+    "Jeddah, Saudi Arabia": (21.4858, 39.1925),
+    "Muscat, Oman": (23.5880, 58.3829),
+    "Karachi, Pakistan": (24.8607, 67.0011),
+    "Chittagong, Bangladesh": (22.3569, 91.7832),
+    "Yangon, Myanmar": (16.8409, 96.1735),
+    "Bangkok, Thailand": (13.7563, 100.5018),
+    "Ho Chi Minh City, Vietnam": (10.8231, 106.6297),
+    "Haiphong, Vietnam": (20.8449, 106.6881),
+    "Manila, Philippines": (14.5995, 120.9842),
+    "Hong Kong": (22.3193, 114.1694),
+    "Shanghai, China": (31.2304, 121.4737),
+    "Ningbo, China": (29.8683, 121.5440),
+    "Shenzhen, China": (22.5431, 114.0579),
+    "Guangzhou, China": (23.1291, 113.2644),
+    "Qingdao, China": (36.0671, 120.3826),
+    "Tianjin, China": (39.3434, 117.3616),
+    "Dalian, China": (38.9140, 121.6147),
+    "Busan, South Korea": (35.1796, 129.0756),
+    "Incheon, South Korea": (37.4563, 126.7052),
+    "Tokyo, Japan": (35.6762, 139.6503),
+    "Yokohama, Japan": (35.4437, 139.6380),
+    "Osaka, Japan": (34.6937, 135.5023),
+    "Nagoya, Japan": (35.1815, 136.9066),
+    "Taipei, Taiwan": (25.0330, 121.5654),
+    "Kaohsiung, Taiwan": (22.6273, 120.3014),
+    "Vladivostok, Russia": (43.1155, 131.8855),
+
+    # EUROPE
+    "Rotterdam, Netherlands": (51.9244, 4.4777),
+    "Amsterdam, Netherlands": (52.3676, 4.9041),
+    "Antwerp, Belgium": (51.2194, 4.4025),
+    "Hamburg, Germany": (53.5511, 9.9937),
+    "Bremerhaven, Germany": (53.5396, 8.5809),
+    "London, UK": (51.5074, -0.1278),
+    "Southampton, UK": (50.9097, -1.4044),
+    "Liverpool, UK": (53.4084, -2.9916),
+    "Le Havre, France": (49.4944, 0.1079),
+    "Marseille, France": (43.2965, 5.3698),
+    "Barcelona, Spain": (41.3874, 2.1686),
+    "Valencia, Spain": (39.4699, -0.3763),
+    "Lisbon, Portugal": (38.7223, -9.1393),
+    "Genoa, Italy": (44.4056, 8.9463),
+    "Naples, Italy": (40.8518, 14.2681),
+    "Piraeus, Greece": (37.9838, 23.7275),
+    "Istanbul, Turkey": (41.0082, 28.9784),
+    "Athens, Greece": (37.9838, 23.7275),
+    "Gdansk, Poland": (54.3520, 18.6466),
+    "Helsinki, Finland": (60.1699, 24.9384),
+
+    # AFRICA
+    "Cape Town, South Africa": (-33.9249, 18.4241),
+    "Durban, South Africa": (-29.8587, 31.0218),
+    "Port Elizabeth, South Africa": (-33.9608, 25.6022),
+    "Lagos, Nigeria": (6.5244, 3.3792),
+    "Port Harcourt, Nigeria": (4.8156, 7.0498),
+    "Alexandria, Egypt": (31.2001, 29.9187),
+    "Port Said, Egypt": (31.2653, 32.3019),
+    "Casablanca, Morocco": (33.5731, -7.5898),
+    "Tangier, Morocco": (35.7595, -5.8340),
+    "Mombasa, Kenya": (-4.0435, 39.6682),
+    "Dar es Salaam, Tanzania": (-6.7924, 39.2083),
+
+    # NORTH AMERICA
+    "New York, USA": (40.7128, -74.0060),
+    "Los Angeles, USA": (34.0522, -118.2437),
+    "Long Beach, USA": (33.7701, -118.1937),
+    "Houston, USA": (29.7604, -95.3698),
+    "Miami, USA": (25.7617, -80.1918),
+    "New Orleans, USA": (29.9511, -90.0715),
+    "Savannah, USA": (32.0809, -81.0912),
+    "Seattle, USA": (47.6062, -122.3321),
+    "Oakland, USA": (37.8044, -122.2712),
+    "Vancouver, Canada": (49.2827, -123.1207),
+    "Montreal, Canada": (45.5017, -73.5673),
+    "Halifax, Canada": (44.6488, -63.5752),
+    "Manzanillo, Mexico": (19.1138, -104.3385),
+    "Veracruz, Mexico": (19.1738, -96.1342),
+
+    # SOUTH AMERICA
+    "Santos, Brazil": (-23.9608, -46.3336),
+    "Rio de Janeiro, Brazil": (-22.9068, -43.1729),
+    "Buenos Aires, Argentina": (-34.6037, -58.3816),
+    "Montevideo, Uruguay": (-34.9011, -56.1645),
+    "Valparaiso, Chile": (-33.0472, -71.6127),
+    "Callao, Peru": (-12.0464, -77.0428),
+    "Guayaquil, Ecuador": (-2.1709, -79.9224),
+    "Cartagena, Colombia": (10.3910, -75.4794),
+
+    # AUSTRALIA / OCEANIA
+    "Sydney, Australia": (-33.8688, 151.2093),
+    "Melbourne, Australia": (-37.8136, 144.9631),
+    "Brisbane, Australia": (-27.4698, 153.0251),
+    "Perth, Australia": (-31.9505, 115.8605),
+    "Adelaide, Australia": (-34.9285, 138.6007),
+    "Fremantle, Australia": (-32.0569, 115.7439),
+    "Auckland, New Zealand": (-36.8509, 174.7645),
+    "Wellington, New Zealand": (-41.2866, 174.7756),
+    "Suva, Fiji": (-18.1416, 178.4419),
+}
+
+PORT_NAMES = list(WORLD_PORTS.keys())
+
 
 # ============================================================
 # DATABASE
 # ============================================================
 
 def init_database():
+
     conn = sqlite3.connect(DB_NAME)
+
     cur = conn.cursor()
 
     cur.execute("""
@@ -83,22 +219,52 @@ def init_database():
     conn.close()
 
 
-def save_prediction(vessel_type, capacity, speed, distance, cargo,
-                    fuel_type, fuel_price, weather, initial_fuel,
-                    initial_cost, initial_co2, best_solution,
-                    fuel_saving, cost_saving, co2_reduction):
+def save_prediction(
+    vessel_type,
+    capacity,
+    speed,
+    distance,
+    cargo,
+    fuel_type,
+    fuel_price,
+    weather,
+    initial_fuel,
+    initial_cost,
+    initial_co2,
+    best_solution,
+    fuel_saving,
+    cost_saving,
+    co2_reduction
+):
 
     conn = sqlite3.connect(DB_NAME)
+
     cur = conn.cursor()
 
     cur.execute("""
         INSERT INTO predictions (
-            created_at, vessel_type, capacity, speed, distance, cargo,
-            current_fuel, fuel_price, weather, predicted_fuel,
-            initial_cost, initial_co2, optimized_fuel_type,
-            optimized_speed, optimized_fuel, optimized_cost,
-            optimized_co2, fuel_saving, cost_saving, co2_reduction
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_at,
+            vessel_type,
+            capacity,
+            speed,
+            distance,
+            cargo,
+            current_fuel,
+            fuel_price,
+            weather,
+            predicted_fuel,
+            initial_cost,
+            initial_co2,
+            optimized_fuel_type,
+            optimized_speed,
+            optimized_fuel,
+            optimized_cost,
+            optimized_co2,
+            fuel_saving,
+            cost_saving,
+            co2_reduction
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         vessel_type,
@@ -153,10 +319,12 @@ def load_prediction_history(limit=20):
             cost_saving AS "Cost Saving (%)",
             co2_reduction AS "CO₂ Reduction (%)"
         FROM predictions
-        ORDER BY id DESC LIMIT ?
+        ORDER BY id DESC
+        LIMIT ?
     """, conn, params=(limit,))
 
     conn.close()
+
     return df
 
 
@@ -164,7 +332,9 @@ def clear_prediction_history():
 
     conn = sqlite3.connect(DB_NAME)
 
-    conn.execute("DELETE FROM predictions")
+    conn.execute(
+        "DELETE FROM predictions"
+    )
 
     conn.commit()
     conn.close()
@@ -176,11 +346,23 @@ def save_voyage_segments(rows):
 
     conn.executemany("""
         INSERT INTO voyage_segments (
-            created_at, segment_no, distance_km, weather, wind_speed,
-            wind_direction, wave_height, current_speed,
-            current_direction, selected_fuel, selected_speed,
-            fuel_consumption, co2, cost, alert
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_at,
+            segment_no,
+            distance_km,
+            weather,
+            wind_speed,
+            wind_direction,
+            wave_height,
+            current_speed,
+            current_direction,
+            selected_fuel,
+            selected_speed,
+            fuel_consumption,
+            co2,
+            cost,
+            alert
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, rows)
 
     conn.commit()
@@ -208,14 +390,29 @@ def load_segment_history(limit=50):
             cost AS "Cost (₹)",
             alert AS Alert
         FROM voyage_segments
-        ORDER BY id DESC LIMIT ?
+        ORDER BY id DESC
+        LIMIT ?
     """, conn, params=(limit,))
 
     conn.close()
+
     return df
 
 
+def clear_voyage_segment_history():
+
+    conn = sqlite3.connect(DB_NAME)
+
+    conn.execute(
+        "DELETE FROM voyage_segments"
+    )
+
+    conn.commit()
+    conn.close()
+
+
 init_database()
+
 
 # ============================================================
 # PAGE CONFIG
@@ -226,6 +423,7 @@ st.set_page_config(
     page_icon="🚢",
     layout="wide"
 )
+
 
 # ============================================================
 # CSS
@@ -309,11 +507,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
 # ============================================================
 # FUEL DATA
 # ============================================================
 
 fuel_data = {
+
     "Diesel": {
         "consumption_factor": 1.00,
         "co2_factor": 3.20,
@@ -357,58 +557,82 @@ fuel_data = {
     }
 }
 
+
 weather_factor_map = {
+
     "Calm Sea": 0.92,
     "Normal": 1.00,
     "Moderate": 1.08,
     "Heavy Weather": 1.18,
     "Storm": 1.32
+
 }
 
-# ============================================================
-# PORT COORDINATES
-# ============================================================
-
-PORT_COORDINATES = {
-    "Chennai": (13.0827, 80.2707),
-    "Mumbai": (19.0760, 72.8777),
-    "Visakhapatnam": (17.6868, 83.2185),
-    "Kochi": (9.9312, 76.2673),
-    "Kolkata": (22.5726, 88.3639),
-    "Paradip": (20.2961, 86.6112),
-    "Tuticorin": (8.7642, 78.1348),
-    "Goa": (15.4909, 73.8278),
-    "Kandla": (23.0333, 70.2167),
-    "New Mangalore": (12.9141, 74.8560),
-    "Singapore": (1.3521, 103.8198),
-    "Colombo": (6.9271, 79.8612),
-    "Dubai": (25.2048, 55.2708)
-}
 
 # ============================================================
 # MODEL FUNCTIONS
 # ============================================================
 
-def base_fuel(capacity, speed, distance, fuel):
+def base_fuel(
+    capacity,
+    speed,
+    distance,
+    fuel
+):
 
-    base = (capacity / 10000) * (distance / 1000) * 2.0
+    base = (
+        (capacity / 10000)
+        * (distance / 1000)
+        * 2.0
+    )
 
-    speed_factor = (speed / 18) ** 2.3
+    speed_factor = (
+        speed / 18
+    ) ** 2.3
 
-    return base * speed_factor * fuel_data[fuel]["consumption_factor"]
+    return (
+        base
+        * speed_factor
+        * fuel_data[fuel]["consumption_factor"]
+    )
 
 
-def environmental_factor(weather, wind_speed, wave_height, current_speed):
+def environmental_factor(
+    weather,
+    wind_speed,
+    wave_height,
+    current_speed
+):
 
-    wf = weather_factor_map.get(weather, 1.0)
+    wf = weather_factor_map.get(
+        weather,
+        1.0
+    )
 
-    wind_effect = 1 + max(0, wind_speed - 8) * 0.012
+    wind_effect = (
+        1
+        + max(0, wind_speed - 8)
+        * 0.012
+    )
 
-    wave_effect = 1 + max(0, wave_height - 1) * 0.075
+    wave_effect = (
+        1
+        + max(0, wave_height - 1)
+        * 0.075
+    )
 
-    current_effect = 1 + max(0, current_speed - 0.5) * 0.06
+    current_effect = (
+        1
+        + max(0, current_speed - 0.5)
+        * 0.06
+    )
 
-    return wf * wind_effect * wave_effect * current_effect
+    return (
+        wf
+        * wind_effect
+        * wave_effect
+        * current_effect
+    )
 
 
 def predict_fuel(
@@ -422,49 +646,86 @@ def predict_fuel(
     current_speed=0.5
 ):
 
-    return base_fuel(
-        capacity,
-        speed,
-        distance,
-        fuel
-    ) * environmental_factor(
-        weather,
-        wind_speed,
-        wave_height,
-        current_speed
+    return (
+        base_fuel(
+            capacity,
+            speed,
+            distance,
+            fuel
+        )
+        * environmental_factor(
+            weather,
+            wind_speed,
+            wave_height,
+            current_speed
+        )
     )
 
 
-def calculate_co2(fuel_amount, fuel):
+def calculate_co2(
+    fuel_amount,
+    fuel
+):
 
-    return fuel_amount * fuel_data[fuel]["co2_factor"]
+    return (
+        fuel_amount
+        * fuel_data[fuel]["co2_factor"]
+    )
 
 
-def haversine_km(lat1, lon1, lat2, lon2):
+def haversine_km(
+    lat1,
+    lon1,
+    lat2,
+    lon2
+):
 
     r = 6371.0
 
     p1 = math.radians(lat1)
     p2 = math.radians(lat2)
 
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
+    dp = math.radians(
+        lat2 - lat1
+    )
+
+    dl = math.radians(
+        lon2 - lon1
+    )
 
     a = (
         math.sin(dp / 2) ** 2
-        + math.cos(p1)
+        +
+        math.cos(p1)
         * math.cos(p2)
         * math.sin(dl / 2) ** 2
     )
 
-    return 2 * r * math.asin(math.sqrt(a))
+    return (
+        2
+        * r
+        * math.asin(
+            math.sqrt(a)
+        )
+    )
 
 
-def interpolate_position(lat1, lon1, lat2, lon2, progress):
+def interpolate_position(
+    lat1,
+    lon1,
+    lat2,
+    lon2,
+    progress
+):
 
     return (
-        lat1 + (lat2 - lat1) * progress,
-        lon1 + (lon2 - lon1) * progress
+        lat1
+        + (lat2 - lat1)
+        * progress,
+
+        lon1
+        + (lon2 - lon1)
+        * progress
     )
 
 
@@ -502,7 +763,9 @@ def generate_segment_conditions(
         wind = float(
             np.clip(
                 rng.normal(
-                    12 if weather != "Calm Sea" else 6,
+                    12
+                    if weather != "Calm Sea"
+                    else 6,
                     3
                 ),
                 2,
@@ -514,7 +777,11 @@ def generate_segment_conditions(
             np.clip(
                 rng.normal(
                     1.7
-                    if weather in ["Moderate", "Heavy Weather"]
+                    if weather
+                    in [
+                        "Moderate",
+                        "Heavy Weather"
+                    ]
                     else 0.9,
                     0.5
                 ),
@@ -525,39 +792,71 @@ def generate_segment_conditions(
 
         current = float(
             np.clip(
-                rng.normal(1.1, 0.4),
+                rng.normal(
+                    1.1,
+                    0.4
+                ),
                 0.1,
                 3.0
             )
         )
 
         wind_dir = float(
-            rng.integers(0, 360)
+            rng.integers(
+                0,
+                360
+            )
         )
 
         current_dir = float(
-            rng.integers(0, 360)
+            rng.integers(
+                0,
+                360
+            )
         )
 
         rows.append({
+
             "segment": i + 1,
+
             "weather": weather,
+
             "wind_speed": wind,
+
             "wind_direction": wind_dir,
+
             "wave_height": wave,
+
             "current_speed": current,
-            "current_direction": current_dir
+
+            "current_direction":
+                current_dir
+
         })
 
     return rows
 
 
-def alert_level(weather, wind, wave):
+def alert_level(
+    weather,
+    wind,
+    wave
+):
 
-    if weather == "Storm" or wind >= 25 or wave >= 4.5:
+    if (
+        weather == "Storm"
+        or wind >= 25
+        or wave >= 4.5
+    ):
+
         return "🔴 Severe"
 
-    if weather == "Heavy Weather" or wind >= 18 or wave >= 3:
+    if (
+        weather == "Heavy Weather"
+        or wind >= 18
+        or wave >= 3
+    ):
+
         return "🟠 Caution"
 
     return "🟢 Normal"
@@ -576,18 +875,28 @@ def optimize_single_segment(
 ):
 
     raw_speeds = [
+
         requested_speed - 2,
+
         requested_speed - 1,
+
         requested_speed,
+
         requested_speed + 1,
+
         requested_speed + 2
+
     ]
 
     candidate_speeds = sorted(
         set(
             round(
                 float(
-                    np.clip(s, 8, 25)
+                    np.clip(
+                        s,
+                        8,
+                        25
+                    )
                 ),
                 1
             )
@@ -630,13 +939,18 @@ def optimize_single_segment(
 
                 cargo_penalty = (
                     1_000_000
-                    + (cargo - capacity) * 1000
+                    + (
+                        cargo - capacity
+                    )
+                    * 1000
                 )
 
             score = (
                 cost * 0.55
                 + co2 * 12000 * 0.35
-                + abs(candidate_speed - 17)
+                + abs(
+                    candidate_speed - 17
+                )
                 * cost
                 * 0.03
                 + cargo_penalty
@@ -647,12 +961,24 @@ def optimize_single_segment(
                 best_score = score
 
                 best = {
+
                     "fuel": fuel,
-                    "speed": candidate_speed,
-                    "fuel_consumption": consumption,
-                    "cost": cost,
-                    "co2": co2,
-                    "score": score
+
+                    "speed":
+                        candidate_speed,
+
+                    "fuel_consumption":
+                        consumption,
+
+                    "cost":
+                        cost,
+
+                    "co2":
+                        co2,
+
+                    "score":
+                        score
+
                 }
 
     return best
@@ -663,23 +989,30 @@ def optimize_single_segment(
 # ============================================================
 
 st.markdown(
-    '<div class="main-title">⚛️ Quantum Predictors</div>',
+    '<div class="main-title">'
+    '⚛️ Quantum Predictors'
+    '</div>',
     unsafe_allow_html=True
 )
 
 st.markdown(
     '<div class="subtitle">'
-    'Quantum-Inspired Fuel Consumption Prediction & Green Fleet Optimization'
-    '<br>Dynamic Voyage Monitoring • Engineering Day Prototype'
+    'Quantum-Inspired Fuel Consumption Prediction '
+    '& Green Fleet Optimization'
+    '<br>'
+    'Dynamic Voyage Monitoring • Engineering Day Prototype'
     '</div>',
     unsafe_allow_html=True
 )
+
 
 # ============================================================
 # SIDEBAR - FLEET CONFIGURATION
 # ============================================================
 
-st.sidebar.title("⚙️ Fleet Configuration")
+st.sidebar.title(
+    "⚙️ Fleet Configuration"
+)
 
 vessel_type = st.sidebar.selectbox(
     "Vessel Type",
@@ -746,8 +1079,9 @@ if not available_fuels:
         "Select at least one available fuel."
     )
 
-    available_fuels = [fuel_type]
-
+    available_fuels = [
+        fuel_type
+    ]
 
 fuel_price = st.sidebar.number_input(
     "Current Fuel Price (₹ / tonne)",
@@ -797,6 +1131,7 @@ predict_button = st.sidebar.button(
     use_container_width=True
 )
 
+
 # ============================================================
 # TOP DASHBOARD
 # ============================================================
@@ -812,14 +1147,19 @@ initial_fuel = predict_fuel(
     current_speed_now
 )
 
-initial_cost = initial_fuel * fuel_price
+initial_cost = (
+    initial_fuel
+    * fuel_price
+)
 
 initial_co2 = calculate_co2(
     initial_fuel,
     fuel_type
 )
 
-green_score = fuel_data[fuel_type]["green_score"]
+green_score = (
+    fuel_data[fuel_type]["green_score"]
+)
 
 st.markdown(
     '<div class="section-title">'
@@ -833,46 +1173,79 @@ col1, col2, col3, col4 = st.columns(4)
 with col1:
 
     st.markdown(
-        f'<div class="metric-card">'
-        f'<div class="metric-title">Predicted Fuel</div>'
-        f'<div class="metric-value">{initial_fuel:.2f}</div>'
-        f'<div class="small-text">tonnes</div>'
-        f'</div>',
+        f"""
+        <div class="metric-card">
+        <div class="metric-title">
+        Predicted Fuel
+        </div>
+        <div class="metric-value">
+        {initial_fuel:.2f}
+        </div>
+        <div class="small-text">
+        tonnes
+        </div>
+        </div>
+        """,
         unsafe_allow_html=True
     )
 
 with col2:
 
     st.markdown(
-        f'<div class="metric-card">'
-        f'<div class="metric-title">Estimated Cost</div>'
-        f'<div class="metric-value">₹{initial_cost/100000:.2f}L</div>'
-        f'<div class="small-text">current-fuel estimate</div>'
-        f'</div>',
+        f"""
+        <div class="metric-card">
+        <div class="metric-title">
+        Estimated Cost
+        </div>
+        <div class="metric-value">
+        ₹{initial_cost/100000:.2f}L
+        </div>
+        <div class="small-text">
+        current-fuel estimate
+        </div>
+        </div>
+        """,
         unsafe_allow_html=True
     )
 
 with col3:
 
     st.markdown(
-        f'<div class="metric-card">'
-        f'<div class="metric-title">CO₂ Emission</div>'
-        f'<div class="metric-value">{initial_co2:.2f}</div>'
-        f'<div class="small-text">tonnes</div>'
-        f'</div>',
+        f"""
+        <div class="metric-card">
+        <div class="metric-title">
+        CO₂ Emission
+        </div>
+        <div class="metric-value">
+        {initial_co2:.2f}
+        </div>
+        <div class="small-text">
+        tonnes
+        </div>
+        </div>
+        """,
         unsafe_allow_html=True
     )
 
 with col4:
 
     st.markdown(
-        f'<div class="metric-card">'
-        f'<div class="metric-title">Green Score</div>'
-        f'<div class="metric-value">{green_score}</div>'
-        f'<div class="small-text">out of 100</div>'
-        f'</div>',
+        f"""
+        <div class="metric-card">
+        <div class="metric-title">
+        Green Score
+        </div>
+        <div class="metric-value">
+        {green_score}
+        </div>
+        <div class="small-text">
+        out of 100
+        </div>
+        </div>
+        """,
         unsafe_allow_html=True
     )
+
 
 # ============================================================
 # CURRENT CONDITIONS
@@ -887,7 +1260,10 @@ st.markdown(
 
 cc1, cc2, cc3, cc4, cc5 = st.columns(5)
 
-cc1.metric("Weather", weather)
+cc1.metric(
+    "Weather",
+    weather
+)
 
 cc2.metric(
     "Wind",
@@ -913,6 +1289,7 @@ cc5.metric(
     )
 )
 
+
 # ============================================================
 # PREDICTION SUMMARY
 # ============================================================
@@ -927,21 +1304,46 @@ st.markdown(
 st.markdown(
     f"""
     <div class="card">
-    <b>Vessel:</b> {vessel_type}<br>
-    <b>Capacity:</b> {capacity:,} tonnes<br>
-    <b>Cargo Demand:</b> {cargo:,} tonnes<br>
-    <b>Distance:</b> {distance:,} km<br>
-    <b>Current Fuel:</b> {fuel_type}<br>
-    <b>Available Fuels:</b> {', '.join(available_fuels)}<br>
-    <b>Speed:</b> {speed:.1f} knots<br>
-    <b>Environment:</b> {weather},
+
+    <b>Vessel:</b>
+    {vessel_type}
+    <br>
+
+    <b>Capacity:</b>
+    {capacity:,} tonnes
+    <br>
+
+    <b>Cargo Demand:</b>
+    {cargo:,} tonnes
+    <br>
+
+    <b>Distance:</b>
+    {distance:,} km
+    <br>
+
+    <b>Current Fuel:</b>
+    {fuel_type}
+    <br>
+
+    <b>Available Fuels:</b>
+    {', '.join(available_fuels)}
+    <br>
+
+    <b>Speed:</b>
+    {speed:.1f} knots
+    <br>
+
+    <b>Environment:</b>
+    {weather},
     wind {wind_speed_now:.1f} kn,
     waves {wave_height_now:.1f} m,
     current {current_speed_now:.1f} kn
+
     </div>
     """,
     unsafe_allow_html=True
 )
+
 
 # ============================================================
 # STATIC FUEL COMPARISON
@@ -955,18 +1357,28 @@ st.markdown(
 )
 
 fuel_df = pd.DataFrame([
+
     {
         "Fuel": f,
-        "Available": "Yes"
-        if f in available_fuels
-        else "No",
-        "CO₂ Factor": fuel_data[f]["co2_factor"],
+
+        "Available":
+            "Yes"
+            if f in available_fuels
+            else "No",
+
+        "CO₂ Factor":
+            fuel_data[f]["co2_factor"],
+
         "Approx. Price ₹/tonne":
             fuel_data[f]["cost"],
+
         "Green Score":
             fuel_data[f]["green_score"]
+
     }
+
     for f in fuel_data
+
 ])
 
 st.dataframe(
@@ -974,6 +1386,7 @@ st.dataframe(
     use_container_width=True,
     hide_index=True
 )
+
 
 # ============================================================
 # OPTIMIZATION
@@ -1006,25 +1419,46 @@ if predict_button:
                 current_speed_now
             )
 
-        optimized_fuel = best_solution["fuel_consumption"]
+        optimized_fuel = (
+            best_solution["fuel_consumption"]
+        )
 
-        optimized_cost = best_solution["cost"]
+        optimized_cost = (
+            best_solution["cost"]
+        )
 
-        optimized_co2 = best_solution["co2"]
+        optimized_co2 = (
+            best_solution["co2"]
+        )
 
         fuel_saving = (
-            (initial_fuel - optimized_fuel)
+
+            (
+                initial_fuel
+                - optimized_fuel
+            )
             / initial_fuel
+
         ) * 100 if initial_fuel else 0
 
         cost_saving = (
-            (initial_cost - optimized_cost)
+
+            (
+                initial_cost
+                - optimized_cost
+            )
             / initial_cost
+
         ) * 100 if initial_cost else 0
 
         co2_reduction = (
-            (initial_co2 - optimized_co2)
+
+            (
+                initial_co2
+                - optimized_co2
+            )
             / initial_co2
+
         ) * 100 if initial_co2 else 0
 
         save_prediction(
@@ -1055,7 +1489,10 @@ if predict_button:
         st.markdown(
             f"""
             <div class="success-box">
-            <h2>🚢 Recommended Green Fleet Plan</h2>
+
+            <h2>
+            🚢 Recommended Green Fleet Plan
+            </h2>
 
             <h3>
             Recommended Fuel:
@@ -1064,27 +1501,37 @@ if predict_button:
 
             <p>
             Recommended Operating Speed:
-            <b>{best_solution['speed']:.1f} knots</b>
+            <b>
+            {best_solution['speed']:.1f} knots
+            </b>
             </p>
 
             <p>
             Predicted Fuel Consumption:
-            <b>{optimized_fuel:.2f} tonnes</b>
+            <b>
+            {optimized_fuel:.2f} tonnes
+            </b>
             </p>
 
             <p>
             Estimated Fuel Cost:
-            <b>₹{optimized_cost:,.0f}</b>
+            <b>
+            ₹{optimized_cost:,.0f}
+            </b>
             </p>
 
             <p>
             Estimated CO₂ Emissions:
-            <b>{optimized_co2:.2f} tonnes</b>
+            <b>
+            {optimized_co2:.2f} tonnes
+            </b>
             </p>
 
             <p>
             Available-fuel constraint:
-            <b>{', '.join(available_fuels)}</b>
+            <b>
+            {', '.join(available_fuels)}
+            </b>
             </p>
 
             </div>
@@ -1110,6 +1557,7 @@ if predict_button:
         )
 
         comparison = pd.DataFrame({
+
             "Metric": [
                 "Fuel Consumption (t)",
                 "Fuel Cost (₹)",
@@ -1127,6 +1575,7 @@ if predict_button:
                 optimized_cost,
                 optimized_co2
             ]
+
         })
 
         st.dataframe(
@@ -1145,6 +1594,7 @@ if predict_button:
         chart_fuels = available_fuels
 
         values = [
+
             predict_fuel(
                 capacity,
                 best_solution["speed"],
@@ -1155,7 +1605,9 @@ if predict_button:
                 wave_height_now,
                 current_speed_now
             )
+
             for f in chart_fuels
+
         ]
 
         fig, ax = plt.subplots(
@@ -1192,11 +1644,17 @@ if predict_button:
         )
 
         emissions = [
-            calculate_co2(v, f)
+
+            calculate_co2(
+                v,
+                f
+            )
+
             for f, v in zip(
                 chart_fuels,
                 values
             )
+
         ]
 
         fig2, ax2 = plt.subplots(
@@ -1269,6 +1727,7 @@ if predict_button:
             unsafe_allow_html=True
         )
 
+
 # ============================================================
 # DYNAMIC VOYAGE OPTIMIZATION
 # ============================================================
@@ -1295,84 +1754,71 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
+# ============================================================
+# WORLDWIDE ROUTE SELECTION
+# ============================================================
+
+st.markdown(
+    "### 🌍 Worldwide Route Selection"
+)
+
 v1, v2, v3 = st.columns(3)
+
+
+# ------------------------------------------------------------
+# START PORT
+# ------------------------------------------------------------
 
 with v1:
 
-    start_port = st.text_input(
+    start_port = st.selectbox(
         "Start Port",
-        "Chennai"
+        PORT_NAMES,
+        index=PORT_NAMES.index(
+            "Chennai, India"
+        ),
+        key="start_port_select"
     )
 
-    start_lat = st.number_input(
-        "Start Latitude",
-        -90.0,
-        90.0,
-        13.0827,
-        0.0001
+    start_lat, start_lon = WORLD_PORTS[
+        start_port
+    ]
+
+    st.caption(
+        f"📍 {start_lat:.4f}, "
+        f"{start_lon:.4f}"
     )
 
-    start_lon = st.number_input(
-        "Start Longitude",
-        -180.0,
-        180.0,
-        80.2707,
-        0.0001
-    )
+
+# ------------------------------------------------------------
+# DESTINATION PORT
+# ------------------------------------------------------------
 
 with v2:
 
-    # ========================================================
-    # CHANGEABLE DESTINATION
-    # ========================================================
-
-    destination_options = list(
-        PORT_COORDINATES.keys()
-    ) + [
-        "Custom Destination"
-    ]
-
-    selected_destination = st.selectbox(
+    end_port = st.selectbox(
         "Destination Port",
-        destination_options,
-        index=destination_options.index("Mumbai")
+        PORT_NAMES,
+        index=PORT_NAMES.index(
+            "Mumbai, India"
+        ),
+        key="destination_port_select"
     )
 
-    if selected_destination == "Custom Destination":
+    end_lat, end_lon = WORLD_PORTS[
+        end_port
+    ]
 
-        end_port = st.text_input(
-            "Custom Destination Name",
-            "Custom Port"
-        )
+    st.caption(
+        f"📍 {end_lat:.4f}, "
+        f"{end_lon:.4f}"
+    )
 
-        end_lat = st.number_input(
-            "Destination Latitude",
-            -90.0,
-            90.0,
-            19.0760,
-            0.0001
-        )
 
-        end_lon = st.number_input(
-            "Destination Longitude",
-            -180.0,
-            180.0,
-            72.8777,
-            0.0001
-        )
-
-    else:
-
-        end_port = selected_destination
-
-        end_lat, end_lon = PORT_COORDINATES[
-            selected_destination
-        ]
-
-        st.caption(
-            f"📍 Coordinates: "
-            f"{end_lat:.4f}, {end_lon:.4f}"
-        )
+# ------------------------------------------------------------
+# SEGMENTS
+# ------------------------------------------------------------
 
 with v3:
 
@@ -1400,36 +1846,6 @@ with v3:
         1
     )
 
-# ============================================================
-# ROUTE CHANGE DETECTION
-# ============================================================
-
-current_route_signature = (
-    start_port,
-    round(start_lat, 4),
-    round(start_lon, 4),
-    end_port,
-    round(end_lat, 4),
-    round(end_lon, 4),
-    int(segments)
-)
-
-previous_route_signature = st.session_state.get(
-    "route_signature"
-)
-
-if (
-    previous_route_signature is not None
-    and previous_route_signature != current_route_signature
-):
-
-    st.session_state["track_step"] = 0
-
-    st.session_state["voyage_done"] = False
-
-st.session_state["route_signature"] = (
-    current_route_signature
-)
 
 # ============================================================
 # ROUTE DISTANCE
@@ -1443,7 +1859,8 @@ route_distance = haversine_km(
 )
 
 segment_distance = (
-    route_distance / segments
+    route_distance
+    / segments
 )
 
 st.info(
@@ -1453,6 +1870,11 @@ st.info(
     f"about {segment_distance:,.0f} km per segment"
 )
 
+
+# ============================================================
+# MANUAL CONDITIONS
+# ============================================================
+
 manual_conditions = []
 
 if segment_mode == "Manual Conditions":
@@ -1461,7 +1883,9 @@ if segment_mode == "Manual Conditions":
         "Enter conditions for each segment:"
     )
 
-    for i in range(int(segments)):
+    for i in range(
+        int(segments)
+    ):
 
         a, b, c, d = st.columns(4)
 
@@ -1513,36 +1937,65 @@ if segment_mode == "Manual Conditions":
             )
 
         manual_conditions.append({
-            "segment": i + 1,
-            "weather": mw,
-            "wind_speed": mwind,
-            "wind_direction": 0.0,
-            "wave_height": mwave,
-            "current_speed": mcurrent,
-            "current_direction": 0.0
+
+            "segment":
+                i + 1,
+
+            "weather":
+                mw,
+
+            "wind_speed":
+                mwind,
+
+            "wind_direction":
+                0.0,
+
+            "wave_height":
+                mwave,
+
+            "current_speed":
+                mcurrent,
+
+            "current_direction":
+                0.0
+
         })
+
+
+# ============================================================
+# RUN VOYAGE
+# ============================================================
 
 run_voyage = st.button(
     "🧭 Run Dynamic Voyage Optimization",
     use_container_width=True
 )
 
+
 if run_voyage:
 
     conditions = (
+
         manual_conditions
-        if segment_mode == "Manual Conditions"
+
+        if segment_mode
+        == "Manual Conditions"
+
         else generate_segment_conditions(
             int(segments),
             seed=int(route_seed)
         )
+
     )
 
     voyage_rows = []
 
     total_fuel = 0.0
+
     total_cost = 0.0
+
     total_co2 = 0.0
+
     total_hours = 0.0
 
     segment_display = []
@@ -1563,7 +2016,10 @@ if run_voyage:
 
         hours = (
             segment_distance
-            / (best["speed"] * 1.852)
+            / (
+                best["speed"]
+                * 1.852
+            )
         )
 
         total_hours += hours
@@ -1572,9 +2028,13 @@ if run_voyage:
             best["fuel_consumption"]
         )
 
-        total_cost += best["cost"]
+        total_cost += (
+            best["cost"]
+        )
 
-        total_co2 += best["co2"]
+        total_co2 += (
+            best["co2"]
+        )
 
         alert = alert_level(
             cond["weather"],
@@ -1583,62 +2043,105 @@ if run_voyage:
         )
 
         segment_display.append({
-            "Segment": cond["segment"],
-            "Distance (km)": round(
-                segment_distance,
-                1
-            ),
-            "Weather": cond["weather"],
-            "Wind (kn)": round(
-                cond["wind_speed"],
-                1
-            ),
-            "Wave (m)": round(
-                cond["wave_height"],
-                1
-            ),
-            "Current (kn)": round(
-                cond["current_speed"],
-                1
-            ),
-            "Best Fuel": best["fuel"],
-            "Best Speed": round(
-                best["speed"],
-                1
-            ),
-            "Fuel (t)": round(
-                best["fuel_consumption"],
-                2
-            ),
-            "CO₂ (t)": round(
-                best["co2"],
-                2
-            ),
-            "Cost (₹)": round(
-                best["cost"],
-                0
-            ),
-            "Alert": alert
+
+            "Segment":
+                cond["segment"],
+
+            "Distance (km)":
+                round(
+                    segment_distance,
+                    1
+                ),
+
+            "Weather":
+                cond["weather"],
+
+            "Wind (kn)":
+                round(
+                    cond["wind_speed"],
+                    1
+                ),
+
+            "Wave (m)":
+                round(
+                    cond["wave_height"],
+                    1
+                ),
+
+            "Current (kn)":
+                round(
+                    cond["current_speed"],
+                    1
+                ),
+
+            "Best Fuel":
+                best["fuel"],
+
+            "Best Speed":
+                round(
+                    best["speed"],
+                    1
+                ),
+
+            "Fuel (t)":
+                round(
+                    best["fuel_consumption"],
+                    2
+                ),
+
+            "CO₂ (t)":
+                round(
+                    best["co2"],
+                    2
+                ),
+
+            "Cost (₹)":
+                round(
+                    best["cost"],
+                    0
+                ),
+
+            "Alert":
+                alert
+
         })
 
         voyage_rows.append((
+
             datetime.now().strftime(
                 "%Y-%m-%d %H:%M:%S"
             ),
-            int(cond["segment"]),
+
+            int(
+                cond["segment"]
+            ),
+
             segment_distance,
+
             cond["weather"],
+
             cond["wind_speed"],
+
             cond["wind_direction"],
+
             cond["wave_height"],
+
             cond["current_speed"],
+
             cond["current_direction"],
+
             best["fuel"],
+
             best["speed"],
+
             best["fuel_consumption"],
+
             best["co2"],
+
             best["cost"],
+
             alert
+
         ))
 
     save_voyage_segments(
@@ -1674,17 +2177,30 @@ if run_voyage:
     st.session_state[
         "route"
     ] = (
+
         start_port,
         end_port,
+
         start_lat,
         start_lon,
+
         end_lat,
         end_lon
+
     )
 
     st.session_state[
         "voyage_done"
     ] = True
+
+    st.session_state[
+        "track_step"
+    ] = 0
+
+
+# ============================================================
+# VOYAGE RESULTS
+# ============================================================
 
 if st.session_state.get(
     "voyage_done",
@@ -1799,8 +2315,9 @@ if st.session_state.get(
 
     plt.close(fig3)
 
+
 # ============================================================
-# LIVE VOYAGE MONITORING / TRACKING SIMULATION
+# LIVE VOYAGE MONITORING
 # ============================================================
 
 st.markdown(
@@ -1816,17 +2333,19 @@ st.markdown(
 
     <b>Demo mode:</b>
     the dashboard simulates an onboard GPS/AIS-style feed.
+
     Each update moves the vessel along the selected route
     and changes the monitored environmental conditions.
 
     A real deployment would replace this simulated feed
-    with an actual GPS/AIS, ship telemetry or approved
-    weather-data source.
+    with actual GPS/AIS, ship telemetry or approved
+    weather-data sources.
 
     </div>
     """,
     unsafe_allow_html=True
 )
+
 
 if "track_step" not in st.session_state:
 
@@ -1834,12 +2353,9 @@ if "track_step" not in st.session_state:
         "track_step"
     ] = 0
 
-# Make sure tracking never exceeds current segment count
-if st.session_state["track_step"] > int(segments):
-
-    st.session_state["track_step"] = 0
 
 track_col1, track_col2, track_col3 = st.columns(3)
+
 
 with track_col1:
 
@@ -1851,11 +2367,15 @@ with track_col1:
         st.session_state[
             "track_step"
         ] = min(
+
             st.session_state[
                 "track_step"
             ] + 1,
+
             int(segments)
+
         )
+
 
 with track_col2:
 
@@ -1868,21 +2388,28 @@ with track_col2:
             "track_step"
         ] = 0
 
+
 with track_col3:
 
     st.session_state[
         "track_step"
     ] = st.number_input(
+
         "Tracking Segment",
+
         0,
         int(segments),
+
         int(
             st.session_state[
                 "track_step"
             ]
         ),
+
         1
+
     )
+
 
 step = int(
     st.session_state[
@@ -1891,19 +2418,26 @@ step = int(
 )
 
 progress = (
-    step / max(
+    step
+    / max(
         1,
         int(segments)
     )
 )
 
+
 cur_lat, cur_lon = interpolate_position(
+
     start_lat,
     start_lon,
+
     end_lat,
     end_lon,
+
     progress
+
 )
+
 
 if st.session_state.get(
     "voyage_done",
@@ -1918,76 +2452,135 @@ if st.session_state.get(
 
 else:
 
-    conditions = generate_segment_conditions(
-        int(segments),
-        seed=int(route_seed)
+    conditions = (
+        generate_segment_conditions(
+            int(segments),
+            seed=int(route_seed)
+        )
     )
 
+
 active_index = min(
-    max(step - 1, 0),
+
+    max(
+        step - 1,
+        0
+    ),
+
     len(conditions) - 1
+
 )
 
 active = conditions[
     active_index
 ]
 
+
 if step == 0:
 
     active_weather = weather
+
     active_wind = wind_speed_now
+
     active_wave = wave_height_now
+
     active_current = current_speed_now
+
     active_fuel = fuel_type
+
     active_speed = speed
 
 else:
 
-    active_weather = active["weather"]
-    active_wind = active["wind_speed"]
-    active_wave = active["wave_height"]
-    active_current = active["current_speed"]
+    active_weather = active[
+        "weather"
+    ]
+
+    active_wind = active[
+        "wind_speed"
+    ]
+
+    active_wave = active[
+        "wave_height"
+    ]
+
+    active_current = active[
+        "current_speed"
+    ]
 
     live_best = optimize_single_segment(
+
         capacity,
+
         segment_distance,
+
         speed,
+
         cargo,
+
         available_fuels,
+
         active_weather,
+
         active_wind,
+
         active_wave,
+
         active_current
+
     )
 
-    active_fuel = live_best["fuel"]
+    active_fuel = (
+        live_best["fuel"]
+    )
 
-    active_speed = live_best["speed"]
+    active_speed = (
+        live_best["speed"]
+    )
+
 
 live_fuel_rate = predict_fuel(
+
     capacity,
+
     active_speed,
+
     max(
         segment_distance,
         1
     ),
+
     active_fuel,
+
     active_weather,
+
     active_wind,
+
     active_wave,
+
     active_current
+
 )
 
+
 live_co2 = calculate_co2(
+
     live_fuel_rate,
+
     active_fuel
 )
 
+
 live_alert = alert_level(
+
     active_weather,
+
     active_wind,
+
     active_wave
+
 )
+
 
 lm1, lm2, lm3, lm4, lm5, lm6 = st.columns(6)
 
@@ -2021,6 +2614,7 @@ lm6.metric(
     live_alert
 )
 
+
 lm7, lm8, lm9, lm10 = st.columns(4)
 
 lm7.metric(
@@ -2042,6 +2636,7 @@ lm10.metric(
     "Current",
     f"{active_current:.1f} kn"
 )
+
 
 st.markdown(
     f"""
@@ -2079,160 +2674,171 @@ st.markdown(
 
     <b>Decision:</b>
     The system can recalculate the recommended fuel
-    and speed when the monitored conditions change.
+    and speed when monitored conditions change.
 
     </div>
     """,
     unsafe_allow_html=True
 )
 
+
 # ============================================================
-# INTERACTIVE VOYAGE MAP
+# INTERACTIVE WORLDWIDE VOYAGE MAP
 # ============================================================
 
 st.markdown(
     '<div class="section-title">'
-    '🗺️ Live Voyage Map'
+    '🗺️ Live Worldwide Voyage Map'
     '</div>',
     unsafe_allow_html=True
 )
 
-# ------------------------------------------------------------
-# THREE MAP POINTS
-# ------------------------------------------------------------
 
-map_points = pd.DataFrame([
-    {
-        "name": start_port,
-        "type": "START",
-        "latitude": start_lat,
-        "longitude": start_lon,
-        "color": [0, 200, 100]
-    },
-    {
-        "name": "Current Vessel",
-        "type": "VESSEL",
-        "latitude": cur_lat,
-        "longitude": cur_lon,
-        "color": [30, 144, 255]
-    },
-    {
-        "name": end_port,
-        "type": "DESTINATION",
-        "latitude": end_lat,
-        "longitude": end_lon,
-        "color": [255, 50, 50]
-    }
-])
+# Route line data
+route_points = pd.DataFrame({
 
-# ------------------------------------------------------------
-# ROUTE LINE
-# ------------------------------------------------------------
+    "latitude": np.linspace(
+        start_lat,
+        end_lat,
+        50
+    ),
 
-route_line = pd.DataFrame([
-    {
-        "path": [
-            [start_lon, start_lat],
-            [cur_lon, cur_lat],
-            [end_lon, end_lat]
-        ]
-    }
-])
+    "longitude": np.linspace(
+        start_lon,
+        end_lon,
+        50
+    )
 
-# ------------------------------------------------------------
-# MAP CENTER
-# ------------------------------------------------------------
+})
 
-center_lat = (
-    start_lat +
-    cur_lat +
-    end_lat
-) / 3
 
-center_lon = (
-    start_lon +
-    cur_lon +
-    end_lon
-) / 3
+# Map points
+map_data = pd.DataFrame({
 
-# ------------------------------------------------------------
-# MAP LAYERS
-# ------------------------------------------------------------
-
-route_layer = pdk.Layer(
-    "PathLayer",
-    data=route_line,
-    get_path="path",
-    get_color=[72, 224, 160],
-    width_min_pixels=4,
-    pickable=False
-)
-
-marker_layer = pdk.Layer(
-    "ScatterplotLayer",
-    data=map_points,
-    get_position="[longitude, latitude]",
-    get_fill_color="color",
-    get_radius=25000,
-    radius_min_pixels=8,
-    radius_max_pixels=20,
-    pickable=True,
-    auto_highlight=True
-)
-
-# ------------------------------------------------------------
-# TOOLTIP
-# ------------------------------------------------------------
-
-tooltip = {
-    "html": """
-        <b>{name}</b><br/>
-        Type: {type}<br/>
-        Latitude: {latitude}<br/>
-        Longitude: {longitude}
-    """,
-    "style": {
-        "backgroundColor": "#0d252d",
-        "color": "white"
-    }
-}
-
-# ------------------------------------------------------------
-# VIEW STATE
-# ------------------------------------------------------------
-
-view_state = pdk.ViewState(
-    latitude=center_lat,
-    longitude=center_lon,
-    zoom=4,
-    pitch=0,
-    bearing=0
-)
-
-deck = pdk.Deck(
-    layers=[
-        route_layer,
-        marker_layer
+    "latitude": [
+        start_lat,
+        cur_lat,
+        end_lat
     ],
-    initial_view_state=view_state,
-    tooltip=tooltip
-)
 
-st.pydeck_chart(
-    deck,
-    use_container_width=True
-)
+    "longitude": [
+        start_lon,
+        cur_lon,
+        end_lon
+    ]
 
-# ------------------------------------------------------------
-# MAP INFORMATION
-# ------------------------------------------------------------
+})
 
-remaining_distance = haversine_km(
-    cur_lat,
-    cur_lon,
-    end_lat,
-    end_lon
-)
+
+# Use PyDeck for an actual route line.
+try:
+
+    import pydeck as pdk
+
+    route_layer = pdk.Layer(
+
+        "PathLayer",
+
+        data=[{
+            "path":
+                route_points[
+                    [
+                        "longitude",
+                        "latitude"
+                    ]
+                ].values.tolist()
+        }],
+
+        get_path="path",
+
+        get_width=5,
+
+        get_color=[
+            72,
+            224,
+            160
+        ],
+
+        pickable=False
+
+    )
+
+
+    point_layer = pdk.Layer(
+
+        "ScatterplotLayer",
+
+        data=map_data,
+
+        get_position=[
+            "longitude",
+            "latitude"
+        ],
+
+        get_radius=70000,
+
+        get_fill_color=[
+            255,
+            80,
+            80
+        ],
+
+        pickable=True
+
+    )
+
+
+    view_state = pdk.ViewState(
+
+        latitude=(
+            start_lat
+            + end_lat
+        ) / 2,
+
+        longitude=(
+            start_lon
+            + end_lon
+        ) / 2,
+
+        zoom=2.5
+
+    )
+
+
+    deck = pdk.Deck(
+
+        layers=[
+            route_layer,
+            point_layer
+        ],
+
+        initial_view_state=view_state,
+
+        tooltip={
+            "text":
+            "Latitude: {latitude}\n"
+            "Longitude: {longitude}"
+        }
+
+    )
+
+
+    st.pydeck_chart(
+        deck,
+        use_container_width=True
+    )
+
+except Exception:
+
+    # Fallback if PyDeck is unavailable
+    st.map(
+        map_data,
+        latitude="latitude",
+        longitude="longitude",
+        zoom=2,
+        use_container_width=True
+    )
+
 
 st.markdown(
     f"""
@@ -2244,7 +2850,7 @@ st.markdown(
 
     <br><br>
 
-    <b>🔵 Current Vessel:</b>
+    <b>🚢 Current Vessel:</b>
     ({cur_lat:.4f}, {cur_lon:.4f})
 
     <br><br>
@@ -2255,18 +2861,14 @@ st.markdown(
 
     <br><br>
 
-    <b>📏 Total Route:</b>
-    {route_distance:,.1f} km
-
-    <br>
-
-    <b>📍 Remaining Distance:</b>
-    {remaining_distance:,.1f} km
+    <b>🌍 Route Distance:</b>
+    {route_distance:,.0f} km
 
     </div>
     """,
     unsafe_allow_html=True
 )
+
 
 # ============================================================
 # ALERTS
@@ -2296,6 +2898,7 @@ else:
         "normal monitoring range."
     )
 
+
 # ============================================================
 # SYSTEM FLOW
 # ============================================================
@@ -2308,6 +2911,7 @@ st.markdown(
 )
 
 c1, c2, c3 = st.columns(3)
+
 
 with c1:
 
@@ -2326,6 +2930,7 @@ with c1:
         unsafe_allow_html=True
     )
 
+
 with c2:
 
     st.markdown(
@@ -2342,6 +2947,7 @@ with c2:
         """,
         unsafe_allow_html=True
     )
+
 
 with c3:
 
@@ -2360,8 +2966,9 @@ with c3:
         unsafe_allow_html=True
     )
 
+
 # ============================================================
-# DATABASE HISTORY
+# DATABASE HISTORY - PREDICTIONS
 # ============================================================
 
 st.markdown(
@@ -2373,15 +2980,19 @@ st.markdown(
 
 history_df = load_prediction_history()
 
+
 if not history_df.empty:
 
-    hc1, hc2 = st.columns([5, 1])
+    hc1, hc2 = st.columns(
+        [5, 1]
+    )
 
     with hc2:
 
         if st.button(
             "🗑️ Clear History",
-            use_container_width=True
+            use_container_width=True,
+            key="clear_prediction_history"
         ):
 
             clear_prediction_history()
@@ -2401,6 +3012,7 @@ else:
         "Click Predict & Optimize to save a result."
     )
 
+
 # ============================================================
 # VOYAGE SEGMENT HISTORY
 # ============================================================
@@ -2414,7 +3026,35 @@ st.markdown(
 
 segment_history = load_segment_history()
 
+
 if not segment_history.empty:
+
+    sh1, sh2 = st.columns(
+        [5, 1]
+    )
+
+    with sh2:
+
+        if st.button(
+            "🗑️ Clear Voyage History",
+            use_container_width=True,
+            key="clear_voyage_history"
+        ):
+
+            clear_voyage_segment_history()
+
+            # Clear currently displayed voyage
+            st.session_state[
+                "voyage_done"
+            ] = False
+
+            if "voyage_segments_df" in st.session_state:
+
+                del st.session_state[
+                    "voyage_segments_df"
+                ]
+
+            st.rerun()
 
     st.dataframe(
         segment_history,
