@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import sqlite3
 from datetime import datetime
 import math
+import pydeck as pdk
 
 # ============================================================
 # QUANTUM PREDICTORS - GREEN FLEET OPTIMIZATION
@@ -18,6 +19,7 @@ import math
 # 7. Weather and operational alerts
 # 8. SQLite history
 # 9. Interactive voyage map
+# 10. Changeable destination with automatic coordinates
 # ============================================================
 
 DB_NAME = "fleet_database.db"
@@ -364,6 +366,26 @@ weather_factor_map = {
 }
 
 # ============================================================
+# PORT COORDINATES
+# ============================================================
+
+PORT_COORDINATES = {
+    "Chennai": (13.0827, 80.2707),
+    "Mumbai": (19.0760, 72.8777),
+    "Visakhapatnam": (17.6868, 83.2185),
+    "Kochi": (9.9312, 76.2673),
+    "Kolkata": (22.5726, 88.3639),
+    "Paradip": (20.2961, 86.6112),
+    "Tuticorin": (8.7642, 78.1348),
+    "Goa": (15.4909, 73.8278),
+    "Kandla": (23.0333, 70.2167),
+    "New Mangalore": (12.9141, 74.8560),
+    "Singapore": (1.3521, 103.8198),
+    "Colombo": (6.9271, 79.8612),
+    "Dubai": (25.2048, 55.2708)
+}
+
+# ============================================================
 # MODEL FUNCTIONS
 # ============================================================
 
@@ -634,6 +656,7 @@ def optimize_single_segment(
                 }
 
     return best
+
 
 # ============================================================
 # HEADER
@@ -1299,26 +1322,57 @@ with v1:
 
 with v2:
 
-    end_port = st.text_input(
+    # ========================================================
+    # CHANGEABLE DESTINATION
+    # ========================================================
+
+    destination_options = list(
+        PORT_COORDINATES.keys()
+    ) + [
+        "Custom Destination"
+    ]
+
+    selected_destination = st.selectbox(
         "Destination Port",
-        "Mumbai"
+        destination_options,
+        index=destination_options.index("Mumbai")
     )
 
-    end_lat = st.number_input(
-        "Destination Latitude",
-        -90.0,
-        90.0,
-        19.0760,
-        0.0001
-    )
+    if selected_destination == "Custom Destination":
 
-    end_lon = st.number_input(
-        "Destination Longitude",
-        -180.0,
-        180.0,
-        72.8777,
-        0.0001
-    )
+        end_port = st.text_input(
+            "Custom Destination Name",
+            "Custom Port"
+        )
+
+        end_lat = st.number_input(
+            "Destination Latitude",
+            -90.0,
+            90.0,
+            19.0760,
+            0.0001
+        )
+
+        end_lon = st.number_input(
+            "Destination Longitude",
+            -180.0,
+            180.0,
+            72.8777,
+            0.0001
+        )
+
+    else:
+
+        end_port = selected_destination
+
+        end_lat, end_lon = PORT_COORDINATES[
+            selected_destination
+        ]
+
+        st.caption(
+            f"📍 Coordinates: "
+            f"{end_lat:.4f}, {end_lon:.4f}"
+        )
 
 with v3:
 
@@ -1345,6 +1399,41 @@ with v3:
         42,
         1
     )
+
+# ============================================================
+# ROUTE CHANGE DETECTION
+# ============================================================
+
+current_route_signature = (
+    start_port,
+    round(start_lat, 4),
+    round(start_lon, 4),
+    end_port,
+    round(end_lat, 4),
+    round(end_lon, 4),
+    int(segments)
+)
+
+previous_route_signature = st.session_state.get(
+    "route_signature"
+)
+
+if (
+    previous_route_signature is not None
+    and previous_route_signature != current_route_signature
+):
+
+    st.session_state["track_step"] = 0
+
+    st.session_state["voyage_done"] = False
+
+st.session_state["route_signature"] = (
+    current_route_signature
+)
+
+# ============================================================
+# ROUTE DISTANCE
+# ============================================================
 
 route_distance = haversine_km(
     start_lat,
@@ -1745,6 +1834,11 @@ if "track_step" not in st.session_state:
         "track_step"
     ] = 0
 
+# Make sure tracking never exceeds current segment count
+if st.session_state["track_step"] > int(segments):
+
+    st.session_state["track_step"] = 0
+
 track_col1, track_col2, track_col3 = st.columns(3)
 
 with track_col1:
@@ -2003,27 +2097,141 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Start, current vessel and destination positions
-map_data = pd.DataFrame({
-    "latitude": [
-        start_lat,
-        cur_lat,
-        end_lat
+# ------------------------------------------------------------
+# THREE MAP POINTS
+# ------------------------------------------------------------
+
+map_points = pd.DataFrame([
+    {
+        "name": start_port,
+        "type": "START",
+        "latitude": start_lat,
+        "longitude": start_lon,
+        "color": [0, 200, 100]
+    },
+    {
+        "name": "Current Vessel",
+        "type": "VESSEL",
+        "latitude": cur_lat,
+        "longitude": cur_lon,
+        "color": [30, 144, 255]
+    },
+    {
+        "name": end_port,
+        "type": "DESTINATION",
+        "latitude": end_lat,
+        "longitude": end_lon,
+        "color": [255, 50, 50]
+    }
+])
+
+# ------------------------------------------------------------
+# ROUTE LINE
+# ------------------------------------------------------------
+
+route_line = pd.DataFrame([
+    {
+        "path": [
+            [start_lon, start_lat],
+            [cur_lon, cur_lat],
+            [end_lon, end_lat]
+        ]
+    }
+])
+
+# ------------------------------------------------------------
+# MAP CENTER
+# ------------------------------------------------------------
+
+center_lat = (
+    start_lat +
+    cur_lat +
+    end_lat
+) / 3
+
+center_lon = (
+    start_lon +
+    cur_lon +
+    end_lon
+) / 3
+
+# ------------------------------------------------------------
+# MAP LAYERS
+# ------------------------------------------------------------
+
+route_layer = pdk.Layer(
+    "PathLayer",
+    data=route_line,
+    get_path="path",
+    get_color=[72, 224, 160],
+    width_min_pixels=4,
+    pickable=False
+)
+
+marker_layer = pdk.Layer(
+    "ScatterplotLayer",
+    data=map_points,
+    get_position="[longitude, latitude]",
+    get_fill_color="color",
+    get_radius=25000,
+    radius_min_pixels=8,
+    radius_max_pixels=20,
+    pickable=True,
+    auto_highlight=True
+)
+
+# ------------------------------------------------------------
+# TOOLTIP
+# ------------------------------------------------------------
+
+tooltip = {
+    "html": """
+        <b>{name}</b><br/>
+        Type: {type}<br/>
+        Latitude: {latitude}<br/>
+        Longitude: {longitude}
+    """,
+    "style": {
+        "backgroundColor": "#0d252d",
+        "color": "white"
+    }
+}
+
+# ------------------------------------------------------------
+# VIEW STATE
+# ------------------------------------------------------------
+
+view_state = pdk.ViewState(
+    latitude=center_lat,
+    longitude=center_lon,
+    zoom=4,
+    pitch=0,
+    bearing=0
+)
+
+deck = pdk.Deck(
+    layers=[
+        route_layer,
+        marker_layer
     ],
+    initial_view_state=view_state,
+    tooltip=tooltip
+)
 
-    "longitude": [
-        start_lon,
-        cur_lon,
-        end_lon
-    ]
-})
-
-st.map(
-    map_data,
-    latitude="latitude",
-    longitude="longitude",
-    zoom=5,
+st.pydeck_chart(
+    deck,
     use_container_width=True
+)
+
+# ------------------------------------------------------------
+# MAP INFORMATION
+# ------------------------------------------------------------
+
+remaining_distance = haversine_km(
+    cur_lat,
+    cur_lon,
+    end_lat,
+    end_lon
 )
 
 st.markdown(
@@ -2036,7 +2244,7 @@ st.markdown(
 
     <br><br>
 
-    <b>🚢 Current Vessel:</b>
+    <b>🔵 Current Vessel:</b>
     ({cur_lat:.4f}, {cur_lon:.4f})
 
     <br><br>
@@ -2044,6 +2252,16 @@ st.markdown(
     <b>🔴 Destination:</b>
     {end_port}
     ({end_lat:.4f}, {end_lon:.4f})
+
+    <br><br>
+
+    <b>📏 Total Route:</b>
+    {route_distance:,.1f} km
+
+    <br>
+
+    <b>📍 Remaining Distance:</b>
+    {remaining_distance:,.1f} km
 
     </div>
     """,
@@ -2182,6 +2400,10 @@ else:
         "No prediction history yet. "
         "Click Predict & Optimize to save a result."
     )
+
+# ============================================================
+# VOYAGE SEGMENT HISTORY
+# ============================================================
 
 st.markdown(
     '<div class="section-title">'
