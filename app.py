@@ -175,6 +175,39 @@ def load_segment_history(limit=50):
     return df
 
 
+# ============================================================
+# NEW: CLEAR VOYAGE HISTORY
+# ============================================================
+
+def clear_voyage_history():
+    conn = sqlite3.connect(DB_NAME)
+
+    # Delete all saved voyage segment history
+    conn.execute("DELETE FROM voyage_segments")
+
+    conn.commit()
+    conn.close()
+
+    # Clear current voyage session data
+    voyage_keys = [
+        "voyage_conditions",
+        "voyage_segments_df",
+        "voyage_total_fuel",
+        "voyage_total_cost",
+        "voyage_total_co2",
+        "voyage_hours",
+        "route",
+        "voyage_done"
+    ]
+
+    for key in voyage_keys:
+        if key in st.session_state:
+            del st.session_state[key]
+
+    # Reset live tracking
+    st.session_state["track_step"] = 0
+
+
 init_database()
 
 # ============================================================
@@ -590,14 +623,17 @@ Each segment can have different wind, wave, current and weather conditions, and 
 """, unsafe_allow_html=True)
 
 v1, v2, v3 = st.columns(3)
+
 with v1:
     start_port = st.text_input("Start Port", "Chennai")
     start_lat = st.number_input("Start Latitude", -90.0, 90.0, 13.0827, 0.0001)
     start_lon = st.number_input("Start Longitude", -180.0, 180.0, 80.2707, 0.0001)
+
 with v2:
     end_port = st.text_input("Destination Port", "Mumbai")
     end_lat = st.number_input("Destination Latitude", -90.0, 90.0, 19.0760, 0.0001)
     end_lon = st.number_input("Destination Longitude", -180.0, 180.0, 72.8777, 0.0001)
+
 with v3:
     segments = st.number_input("Number of Voyage Segments", 2, 30, 6, 1)
     segment_mode = st.selectbox("Condition Mode", ["Dynamic Simulation", "Manual Conditions"])
@@ -605,21 +641,58 @@ with v3:
 
 route_distance = haversine_km(start_lat, start_lon, end_lat, end_lon)
 segment_distance = route_distance / segments
-st.info(f"🛳️ Estimated route distance: {route_distance:,.0f} km • {segments} segments • about {segment_distance:,.0f} km per segment")
+
+st.info(
+    f"🛳️ Estimated route distance: {route_distance:,.0f} km • "
+    f"{segments} segments • about {segment_distance:,.0f} km per segment"
+)
 
 manual_conditions = []
+
 if segment_mode == "Manual Conditions":
     st.write("Enter conditions for each segment:")
+
     for i in range(int(segments)):
+
         a, b, c, d = st.columns(4)
+
         with a:
-            mw = st.selectbox(f"S{i+1} Weather", ["Calm Sea", "Normal", "Moderate", "Heavy Weather", "Storm"], key=f"mw_{i}")
+            mw = st.selectbox(
+                f"S{i+1} Weather",
+                ["Calm Sea", "Normal", "Moderate", "Heavy Weather", "Storm"],
+                key=f"mw_{i}"
+            )
+
         with b:
-            mwind = st.number_input(f"S{i+1} Wind (kn)", 0.0, 40.0, 10.0, 1.0, key=f"mwind_{i}")
+            mwind = st.number_input(
+                f"S{i+1} Wind (kn)",
+                0.0,
+                40.0,
+                10.0,
+                1.0,
+                key=f"mwind_{i}"
+            )
+
         with c:
-            mwave = st.number_input(f"S{i+1} Wave (m)", 0.1, 8.0, 1.2, 0.1, key=f"mwave_{i}")
+            mwave = st.number_input(
+                f"S{i+1} Wave (m)",
+                0.1,
+                8.0,
+                1.2,
+                0.1,
+                key=f"mwave_{i}"
+            )
+
         with d:
-            mcurrent = st.number_input(f"S{i+1} Current (kn)", 0.0, 5.0, 0.6, 0.1, key=f"mcur_{i}")
+            mcurrent = st.number_input(
+                f"S{i+1} Current (kn)",
+                0.0,
+                5.0,
+                0.6,
+                0.1,
+                key=f"mcur_{i}"
+            )
+
         manual_conditions.append({
             "segment": i + 1,
             "weather": mw,
@@ -630,10 +703,22 @@ if segment_mode == "Manual Conditions":
             "current_direction": 0.0,
         })
 
-run_voyage = st.button("🧭 Run Dynamic Voyage Optimization", use_container_width=True)
+run_voyage = st.button(
+    "🧭 Run Dynamic Voyage Optimization",
+    use_container_width=True
+)
 
 if run_voyage:
-    conditions = manual_conditions if segment_mode == "Manual Conditions" else generate_segment_conditions(int(segments), seed=int(route_seed))
+
+    conditions = (
+        manual_conditions
+        if segment_mode == "Manual Conditions"
+        else generate_segment_conditions(
+            int(segments),
+            seed=int(route_seed)
+        )
+    )
+
     voyage_rows = []
     total_fuel = 0.0
     total_cost = 0.0
@@ -642,17 +727,31 @@ if run_voyage:
     segment_display = []
 
     for cond in conditions:
+
         best = optimize_single_segment(
-            capacity, segment_distance, speed, cargo,
-            available_fuels, cond["weather"], cond["wind_speed"],
-            cond["wave_height"], cond["current_speed"]
+            capacity,
+            segment_distance,
+            speed,
+            cargo,
+            available_fuels,
+            cond["weather"],
+            cond["wind_speed"],
+            cond["wave_height"],
+            cond["current_speed"]
         )
-        hours = segment_distance / (best["speed"] * 1.852)  # knots -> km/h
+
+        hours = segment_distance / (best["speed"] * 1.852)
+
         total_hours += hours
         total_fuel += best["fuel_consumption"]
         total_cost += best["cost"]
         total_co2 += best["co2"]
-        alert = alert_level(cond["weather"], cond["wind_speed"], cond["wave_height"])
+
+        alert = alert_level(
+            cond["weather"],
+            cond["wind_speed"],
+            cond["wave_height"]
+        )
 
         segment_display.append({
             "Segment": cond["segment"],
@@ -668,13 +767,23 @@ if run_voyage:
             "Cost (₹)": round(best["cost"], 0),
             "Alert": alert,
         })
+
         voyage_rows.append((
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            int(cond["segment"]), segment_distance, cond["weather"],
-            cond["wind_speed"], cond["wind_direction"], cond["wave_height"],
-            cond["current_speed"], cond["current_direction"], best["fuel"],
-            best["speed"], best["fuel_consumption"], best["co2"],
-            best["cost"], alert
+            int(cond["segment"]),
+            segment_distance,
+            cond["weather"],
+            cond["wind_speed"],
+            cond["wind_direction"],
+            cond["wave_height"],
+            cond["current_speed"],
+            cond["current_direction"],
+            best["fuel"],
+            best["speed"],
+            best["fuel_consumption"],
+            best["co2"],
+            best["cost"],
+            alert
         ))
 
     save_voyage_segments(voyage_rows)
@@ -685,41 +794,96 @@ if run_voyage:
     st.session_state["voyage_total_cost"] = total_cost
     st.session_state["voyage_total_co2"] = total_co2
     st.session_state["voyage_hours"] = total_hours
-    st.session_state["route"] = (start_port, end_port, start_lat, start_lon, end_lat, end_lon)
+    st.session_state["route"] = (
+        start_port,
+        end_port,
+        start_lat,
+        start_lon,
+        end_lat,
+        end_lon
+    )
     st.session_state["voyage_done"] = True
 
 if st.session_state.get("voyage_done", False):
+
     total_fuel = st.session_state["voyage_total_fuel"]
     total_cost = st.session_state["voyage_total_cost"]
     total_co2 = st.session_state["voyage_total_co2"]
     total_hours = st.session_state["voyage_hours"]
     voyage_df = st.session_state["voyage_segments_df"]
 
-    st.markdown('<div class="section-title">📋 Segment-by-Segment Voyage Plan</div>', unsafe_allow_html=True)
-    st.dataframe(voyage_df, use_container_width=True, hide_index=True)
+    st.markdown(
+        '<div class="section-title">📋 Segment-by-Segment Voyage Plan</div>',
+        unsafe_allow_html=True
+    )
+
+    st.dataframe(
+        voyage_df,
+        use_container_width=True,
+        hide_index=True
+    )
 
     t1, t2, t3, t4 = st.columns(4)
-    t1.metric("Total Fuel", f"{total_fuel:.2f} t")
-    t2.metric("Total Cost", f"₹{total_cost/100000:.2f} L")
-    t3.metric("Total CO₂", f"{total_co2:.2f} t")
-    t4.metric("Estimated ETA", f"{total_hours:.1f} h")
 
-    st.markdown('<div class="section-title">🌦️ Changing Weather Across Voyage</div>', unsafe_allow_html=True)
+    t1.metric(
+        "Total Fuel",
+        f"{total_fuel:.2f} t"
+    )
+
+    t2.metric(
+        "Total Cost",
+        f"₹{total_cost/100000:.2f} L"
+    )
+
+    t3.metric(
+        "Total CO₂",
+        f"{total_co2:.2f} t"
+    )
+
+    t4.metric(
+        "Estimated ETA",
+        f"{total_hours:.1f} h"
+    )
+
+    st.markdown(
+        '<div class="section-title">🌦️ Changing Weather Across Voyage</div>',
+        unsafe_allow_html=True
+    )
+
     fig3, ax3 = plt.subplots(figsize=(10, 4))
-    ax3.plot(voyage_df["Segment"], voyage_df["Wave (m)"], marker="o", label="Wave height")
-    ax3.plot(voyage_df["Segment"], voyage_df["Wind (kn)"], marker="o", label="Wind speed")
+
+    ax3.plot(
+        voyage_df["Segment"],
+        voyage_df["Wave (m)"],
+        marker="o",
+        label="Wave height"
+    )
+
+    ax3.plot(
+        voyage_df["Segment"],
+        voyage_df["Wind (kn)"],
+        marker="o",
+        label="Wind speed"
+    )
+
     ax3.set_xlabel("Voyage Segment")
     ax3.set_ylabel("Condition value")
     ax3.set_title("Dynamic Environmental Conditions")
     ax3.legend()
+
     st.pyplot(fig3)
     plt.close(fig3)
+
 
 # ============================================================
 # LIVE VOYAGE MONITORING / TRACKING SIMULATION
 # ============================================================
 
-st.markdown('<div class="section-title">📡 Live Voyage Monitoring</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="section-title">📡 Live Voyage Monitoring</div>',
+    unsafe_allow_html=True
+)
+
 st.markdown("""
 <div class="card">
 <b>Demo mode:</b> the dashboard simulates an onboard GPS/AIS-style feed. Each update moves the vessel along the selected route
@@ -732,68 +896,177 @@ if "track_step" not in st.session_state:
     st.session_state["track_step"] = 0
 
 track_col1, track_col2, track_col3 = st.columns(3)
+
 with track_col1:
-    if st.button("▶️ Next Live Update", use_container_width=True):
-        st.session_state["track_step"] = min(st.session_state["track_step"] + 1, int(segments))
+
+    if st.button(
+        "▶️ Next Live Update",
+        use_container_width=True
+    ):
+
+        st.session_state["track_step"] = min(
+            st.session_state["track_step"] + 1,
+            int(segments)
+        )
+
 with track_col2:
-    if st.button("🔄 Reset Tracking", use_container_width=True):
+
+    if st.button(
+        "🔄 Reset Tracking",
+        use_container_width=True
+    ):
+
         st.session_state["track_step"] = 0
+
 with track_col3:
+
     st.session_state["track_step"] = st.number_input(
-        "Tracking Segment", 0, int(segments), int(st.session_state["track_step"]), 1
+        "Tracking Segment",
+        0,
+        int(segments),
+        int(st.session_state["track_step"]),
+        1
     )
 
 step = int(st.session_state["track_step"])
-progress = step / max(1, int(segments))
-cur_lat, cur_lon = interpolate_position(start_lat, start_lon, end_lat, end_lon, progress)
+
+progress = step / max(
+    1,
+    int(segments)
+)
+
+cur_lat, cur_lon = interpolate_position(
+    start_lat,
+    start_lon,
+    end_lat,
+    end_lon,
+    progress
+)
 
 if st.session_state.get("voyage_done", False):
-    conditions = st.session_state["voyage_conditions"]
-else:
-    conditions = generate_segment_conditions(int(segments), seed=int(route_seed))
 
-active_index = min(max(step - 1, 0), len(conditions) - 1)
+    conditions = st.session_state["voyage_conditions"]
+
+else:
+
+    conditions = generate_segment_conditions(
+        int(segments),
+        seed=int(route_seed)
+    )
+
+active_index = min(
+    max(step - 1, 0),
+    len(conditions) - 1
+)
+
 active = conditions[active_index]
 
 if step == 0:
+
     active_weather = weather
     active_wind = wind_speed_now
     active_wave = wave_height_now
     active_current = current_speed_now
     active_fuel = fuel_type
     active_speed = speed
+
 else:
+
     active_weather = active["weather"]
     active_wind = active["wind_speed"]
     active_wave = active["wave_height"]
     active_current = active["current_speed"]
+
     live_best = optimize_single_segment(
-        capacity, segment_distance, speed, cargo, available_fuels,
-        active_weather, active_wind, active_wave, active_current
+        capacity,
+        segment_distance,
+        speed,
+        cargo,
+        available_fuels,
+        active_weather,
+        active_wind,
+        active_wave,
+        active_current
     )
+
     active_fuel = live_best["fuel"]
     active_speed = live_best["speed"]
 
 live_fuel_rate = predict_fuel(
-    capacity, active_speed, max(segment_distance, 1), active_fuel,
-    active_weather, active_wind, active_wave, active_current
+    capacity,
+    active_speed,
+    max(segment_distance, 1),
+    active_fuel,
+    active_weather,
+    active_wind,
+    active_wave,
+    active_current
 )
-live_co2 = calculate_co2(live_fuel_rate, active_fuel)
-live_alert = alert_level(active_weather, active_wind, active_wave)
+
+live_co2 = calculate_co2(
+    live_fuel_rate,
+    active_fuel
+)
+
+live_alert = alert_level(
+    active_weather,
+    active_wind,
+    active_wave
+)
 
 lm1, lm2, lm3, lm4, lm5, lm6 = st.columns(6)
-lm1.metric("GPS Latitude", f"{cur_lat:.4f}°")
-lm2.metric("GPS Longitude", f"{cur_lon:.4f}°")
-lm3.metric("Progress", f"{progress*100:.1f}%")
-lm4.metric("Live Speed", f"{active_speed:.1f} kn")
-lm5.metric("Live Fuel", active_fuel)
-lm6.metric("Alert", live_alert)
+
+lm1.metric(
+    "GPS Latitude",
+    f"{cur_lat:.4f}°"
+)
+
+lm2.metric(
+    "GPS Longitude",
+    f"{cur_lon:.4f}°"
+)
+
+lm3.metric(
+    "Progress",
+    f"{progress*100:.1f}%"
+)
+
+lm4.metric(
+    "Live Speed",
+    f"{active_speed:.1f} kn"
+)
+
+lm5.metric(
+    "Live Fuel",
+    active_fuel
+)
+
+lm6.metric(
+    "Alert",
+    live_alert
+)
 
 lm7, lm8, lm9, lm10 = st.columns(4)
-lm7.metric("Weather", active_weather)
-lm8.metric("Wind", f"{active_wind:.1f} kn")
-lm9.metric("Wave", f"{active_wave:.1f} m")
-lm10.metric("Current", f"{active_current:.1f} kn")
+
+lm7.metric(
+    "Weather",
+    active_weather
+)
+
+lm8.metric(
+    "Wind",
+    f"{active_wind:.1f} kn"
+)
+
+lm9.metric(
+    "Wave",
+    f"{active_wave:.1f} m"
+)
+
+lm10.metric(
+    "Current",
+    f"{active_current:.1f} kn"
+)
 
 st.markdown(f"""
 <div class="card">
@@ -809,67 +1082,162 @@ st.markdown(f"""
 
 # Route map-like plot using latitude/longitude
 fig4, ax4 = plt.subplots(figsize=(10, 5))
-ax4.plot([start_lon, end_lon], [start_lat, end_lat], marker="o", label="Planned Route")
-ax4.scatter([cur_lon], [cur_lat], s=120, label="Current Vessel")
+
+ax4.plot(
+    [start_lon, end_lon],
+    [start_lat, end_lat],
+    marker="o",
+    label="Planned Route"
+)
+
+ax4.scatter(
+    [cur_lon],
+    [cur_lat],
+    s=120,
+    label="Current Vessel"
+)
+
 ax4.set_xlabel("Longitude")
 ax4.set_ylabel("Latitude")
-ax4.set_title(f"Voyage Tracking: {start_port} → {end_port}")
+ax4.set_title(
+    f"Voyage Tracking: {start_port} → {end_port}"
+)
 ax4.legend()
 ax4.grid(True, alpha=0.25)
+
 st.pyplot(fig4)
 plt.close(fig4)
 
 if live_alert == "🔴 Severe":
-    st.error("⚠️ Severe conditions detected. In a real deployment, an approved navigation/weather system should be consulted and operating decisions should be made by qualified personnel.")
+
+    st.error(
+        "⚠️ Severe conditions detected. In a real deployment, "
+        "an approved navigation/weather system should be consulted "
+        "and operating decisions should be made by qualified personnel."
+    )
+
 elif live_alert == "🟠 Caution":
-    st.warning("⚠️ Caution: environmental resistance is elevated. The optimizer can recalculate the local fuel/speed plan.")
+
+    st.warning(
+        "⚠️ Caution: environmental resistance is elevated. "
+        "The optimizer can recalculate the local fuel/speed plan."
+    )
+
 else:
-    st.success("✅ Conditions are within the prototype's normal monitoring range.")
+
+    st.success(
+        "✅ Conditions are within the prototype's normal monitoring range."
+    )
+
 
 # ============================================================
 # SYSTEM FLOW
 # ============================================================
 
-st.markdown('<div class="section-title">🔬 How the Integrated System Works</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="section-title">🔬 How the Integrated System Works</div>',
+    unsafe_allow_html=True
+)
+
 c1, c2, c3 = st.columns(3)
+
 with c1:
+
     st.markdown("""
     <div class="card"><h3>01 🤖 Prediction</h3>
     Vessel capacity, speed, distance, fuel and environmental conditions are used to estimate fuel consumption.
     </div>
     """, unsafe_allow_html=True)
+
 with c2:
+
     st.markdown("""
     <div class="card"><h3>02 ⚛️ Optimization</h3>
     The prototype searches feasible fuel + speed combinations and minimizes a combined cost/emission/speed objective.
     </div>
     """, unsafe_allow_html=True)
+
 with c3:
+
     st.markdown("""
     <div class="card"><h3>03 📡 Live Monitoring</h3>
     GPS position and changing weather conditions are monitored. When conditions change, the local plan can be recalculated.
     </div>
     """, unsafe_allow_html=True)
 
+
 # ============================================================
 # DATABASE HISTORY
 # ============================================================
 
-st.markdown('<div class="section-title">🗄️ Prediction History</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="section-title">🗄️ Prediction History</div>',
+    unsafe_allow_html=True
+)
+
 history_df = load_prediction_history()
+
 if not history_df.empty:
+
     hc1, hc2 = st.columns([5, 1])
+
     with hc2:
-        if st.button("🗑️ Clear History", use_container_width=True):
+
+        if st.button(
+            "🗑️ Clear History",
+            use_container_width=True
+        ):
+
             clear_prediction_history()
             st.rerun()
-    st.dataframe(history_df, use_container_width=True, hide_index=True)
-else:
-    st.info("No prediction history yet. Click Predict & Optimize to save a result.")
 
-st.markdown('<div class="section-title">🧭 Voyage Segment History</div>', unsafe_allow_html=True)
-segment_history = load_segment_history()
-if not segment_history.empty:
-    st.dataframe(segment_history, use_container_width=True, hide_index=True)
+    st.dataframe(
+        history_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
 else:
-    st.info("No dynamic voyage results saved yet.")
+
+    st.info(
+        "No prediction history yet. Click Predict & Optimize to save a result."
+    )
+
+
+# ============================================================
+# VOYAGE SEGMENT HISTORY
+# ============================================================
+
+st.markdown(
+    '<div class="section-title">🧭 Voyage Segment History</div>',
+    unsafe_allow_html=True
+)
+
+segment_history = load_segment_history()
+
+if not segment_history.empty:
+
+    vc1, vc2 = st.columns([5, 1])
+
+    with vc2:
+
+        if st.button(
+            "🗑️ Clear Voyage History",
+            use_container_width=True
+        ):
+
+            clear_voyage_history()
+
+            st.rerun()
+
+    st.dataframe(
+        segment_history,
+        use_container_width=True,
+        hide_index=True
+    )
+
+else:
+
+    st.info(
+        "No dynamic voyage results saved yet."
+    )
