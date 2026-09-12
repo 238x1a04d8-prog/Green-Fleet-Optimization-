@@ -358,7 +358,7 @@ def optimize_single_segment(capacity, distance, requested_speed, cargo,
 st.markdown('<div class="main-title">⚛️ Quantum Predictors</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="subtitle">Quantum-Inspired Fuel Consumption Prediction & Green Fleet Optimization'
-    '<br>Dynamic Voyage Monitoring • SIH / Engineering Day Prototype</div>',
+    '<br>Dynamic Voyage Monitoring •  Engineering Day Prototype</div>',
     unsafe_allow_html=True
 )
 
@@ -873,5 +873,4 @@ if not segment_history.empty:
     st.dataframe(segment_history, use_container_width=True, hide_index=True)
 else:
     st.info("No dynamic voyage results saved yet.")
-
 
