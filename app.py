@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import math
 
 # ============================================================
@@ -22,9 +22,14 @@ import math
 # 10. Worldwide destination selection
 # 11. Route line visualization
 # 12. Clear prediction + voyage history
+# 13. Weather-aware speed optimization
+# 14. Automatic travel time calculation
+# 15. Automatic travel days calculation
+# 16. Automatic ETA prediction
 # ============================================================
 
 DB_NAME = "fleet_database.db"
+
 
 # ============================================================
 # WORLDWIDE PORT DATABASE
@@ -165,7 +170,6 @@ PORT_NAMES = list(WORLD_PORTS.keys())
 def init_database():
 
     conn = sqlite3.connect(DB_NAME)
-
     cur = conn.cursor()
 
     cur.execute("""
@@ -238,7 +242,6 @@ def save_prediction(
 ):
 
     conn = sqlite3.connect(DB_NAME)
-
     cur = conn.cursor()
 
     cur.execute("""
@@ -570,6 +573,24 @@ weather_factor_map = {
 
 
 # ============================================================
+# WEATHER-AWARE SPEED LIMITS
+# ============================================================
+# These are prototype safety/optimization limits.
+# Worse weather -> lower recommended operating speed.
+# ============================================================
+
+weather_speed_limits = {
+
+    "Calm Sea": 20.0,
+    "Normal": 19.0,
+    "Moderate": 17.0,
+    "Heavy Weather": 15.0,
+    "Storm": 12.0
+
+}
+
+
+# ============================================================
 # MODEL FUNCTIONS
 # ============================================================
 
@@ -671,6 +692,36 @@ def calculate_co2(
         fuel_amount
         * fuel_data[fuel]["co2_factor"]
     )
+
+
+# ============================================================
+# NEW: TRAVEL TIME CALCULATION
+# ============================================================
+
+def calculate_travel_time(
+    distance_km,
+    speed_knots
+):
+
+    speed_kmh = speed_knots * 1.852
+
+    if speed_kmh <= 0:
+        return 0.0
+
+    return distance_km / speed_kmh
+
+
+def calculate_travel_days(
+    distance_km,
+    speed_knots
+):
+
+    hours = calculate_travel_time(
+        distance_km,
+        speed_knots
+    )
+
+    return hours / 24.0
 
 
 def haversine_km(
@@ -862,6 +913,10 @@ def alert_level(
     return "🟢 Normal"
 
 
+# ============================================================
+# WEATHER-AWARE OPTIMIZER
+# ============================================================
+
 def optimize_single_segment(
     capacity,
     distance,
@@ -873,6 +928,20 @@ def optimize_single_segment(
     wave,
     current
 ):
+
+    # --------------------------------------------------------
+    # Weather automatically limits maximum speed.
+    # --------------------------------------------------------
+
+    weather_max_speed = weather_speed_limits.get(
+        weather,
+        19.0
+    )
+
+    safe_max_speed = min(
+        25.0,
+        weather_max_speed
+    )
 
     raw_speeds = [
 
@@ -895,7 +964,7 @@ def optimize_single_segment(
                     np.clip(
                         s,
                         8,
-                        25
+                        safe_max_speed
                     )
                 ),
                 1
@@ -939,7 +1008,8 @@ def optimize_single_segment(
 
                 cargo_penalty = (
                     1_000_000
-                    + (
+                    +
+                    (
                         cargo - capacity
                     )
                     * 1000
@@ -947,14 +1017,50 @@ def optimize_single_segment(
 
             score = (
                 cost * 0.55
-                + co2 * 12000 * 0.35
-                + abs(
+                +
+                co2 * 12000 * 0.35
+                +
+                abs(
                     candidate_speed - 17
                 )
                 * cost
                 * 0.03
-                + cargo_penalty
+                +
+                cargo_penalty
             )
+
+            # Additional weather penalty:
+            # discourage operating near the upper limit
+            # when conditions become severe.
+            if weather == "Moderate":
+                score += (
+                    max(
+                        0,
+                        candidate_speed - 17
+                    )
+                    * cost
+                    * 0.02
+                )
+
+            elif weather == "Heavy Weather":
+                score += (
+                    max(
+                        0,
+                        candidate_speed - 15
+                    )
+                    * cost
+                    * 0.05
+                )
+
+            elif weather == "Storm":
+                score += (
+                    max(
+                        0,
+                        candidate_speed - 12
+                    )
+                    * cost
+                    * 0.10
+                )
 
             if score < best_score:
 
@@ -1007,7 +1113,7 @@ st.markdown(
 
 
 # ============================================================
-# SIDEBAR - FLEET CONFIGURATION
+# SIDEBAR
 # ============================================================
 
 st.sidebar.title(
@@ -1432,33 +1538,27 @@ if predict_button:
         )
 
         fuel_saving = (
-
             (
                 initial_fuel
                 - optimized_fuel
             )
             / initial_fuel
-
         ) * 100 if initial_fuel else 0
 
         cost_saving = (
-
             (
                 initial_cost
                 - optimized_cost
             )
             / initial_cost
-
         ) * 100 if initial_cost else 0
 
         co2_reduction = (
-
             (
                 initial_co2
                 - optimized_co2
             )
             / initial_co2
-
         ) * 100 if initial_co2 else 0
 
         save_prediction(
@@ -1503,6 +1603,13 @@ if predict_button:
             Recommended Operating Speed:
             <b>
             {best_solution['speed']:.1f} knots
+            </b>
+            </p>
+
+            <p>
+            Weather Speed Limit:
+            <b>
+            {weather_speed_limits[weather]:.1f} knots
             </b>
             </p>
 
@@ -1712,9 +1819,20 @@ if predict_button:
 
             <br><br>
 
+            <b>Weather condition:</b>
+            {weather}
+
+            <br><br>
+
+            <b>Weather speed limit:</b>
+            {weather_speed_limits[weather]:.1f} knots
+
+            <br><br>
+
             <b>Reason:</b>
             lowest combined prototype score using fuel cost,
-            CO₂ emissions and speed penalty.
+            CO₂ emissions, speed penalty and weather-aware
+            operating constraints.
 
             <br><br>
 
@@ -1747,7 +1865,16 @@ st.markdown(
     The voyage is divided into route segments.
 
     Each segment can have different wind, wave, current and weather
-    conditions, and the optimizer can select a local fuel/speed plan.
+    conditions.
+
+    The optimizer can select a local fuel/speed plan.
+
+    <br><br>
+
+    <b>Important:</b>
+    when weather becomes worse, the allowed operating speed
+    is automatically reduced. This increases segment travel time
+    and therefore increases total voyage days.
 
     </div>
     """,
@@ -1765,10 +1892,6 @@ st.markdown(
 
 v1, v2, v3 = st.columns(3)
 
-
-# ------------------------------------------------------------
-# START PORT
-# ------------------------------------------------------------
 
 with v1:
 
@@ -1791,10 +1914,6 @@ with v1:
     )
 
 
-# ------------------------------------------------------------
-# DESTINATION PORT
-# ------------------------------------------------------------
-
 with v2:
 
     end_port = st.selectbox(
@@ -1815,10 +1934,6 @@ with v2:
         f"{end_lon:.4f}"
     )
 
-
-# ------------------------------------------------------------
-# SEGMENTS
-# ------------------------------------------------------------
 
 with v3:
 
@@ -1868,6 +1983,25 @@ st.info(
     f"{route_distance:,.0f} km • "
     f"{segments} segments • "
     f"about {segment_distance:,.0f} km per segment"
+)
+
+
+# ============================================================
+# PLANNED SPEED BASELINE
+# ============================================================
+
+planned_hours = calculate_travel_time(
+    route_distance,
+    speed
+)
+
+planned_days = planned_hours / 24
+
+st.caption(
+    f"📌 At your planned speed of {speed:.1f} knots: "
+    f"{planned_hours:.1f} hours "
+    f"({planned_days:.2f} days) before weather-based "
+    f"speed optimization."
 )
 
 
@@ -1974,228 +2108,333 @@ run_voyage = st.button(
 
 if run_voyage:
 
-    conditions = (
+    if cargo > capacity:
 
-        manual_conditions
-
-        if segment_mode
-        == "Manual Conditions"
-
-        else generate_segment_conditions(
-            int(segments),
-            seed=int(route_seed)
+        st.error(
+            "Cargo demand is greater than vessel capacity. "
+            "Please correct the input."
         )
 
-    )
+    else:
 
-    voyage_rows = []
+        conditions = (
 
-    total_fuel = 0.0
+            manual_conditions
 
-    total_cost = 0.0
+            if segment_mode
+            == "Manual Conditions"
 
-    total_co2 = 0.0
+            else generate_segment_conditions(
+                int(segments),
+                seed=int(route_seed)
+            )
 
-    total_hours = 0.0
-
-    segment_display = []
-
-    for cond in conditions:
-
-        best = optimize_single_segment(
-            capacity,
-            segment_distance,
-            speed,
-            cargo,
-            available_fuels,
-            cond["weather"],
-            cond["wind_speed"],
-            cond["wave_height"],
-            cond["current_speed"]
         )
 
-        hours = (
-            segment_distance
-            / (
+        voyage_rows = []
+
+        total_fuel = 0.0
+        total_cost = 0.0
+        total_co2 = 0.0
+
+        # NEW
+        total_hours = 0.0
+        speed_sum = 0.0
+
+        segment_display = []
+
+        for cond in conditions:
+
+            best = optimize_single_segment(
+                capacity,
+                segment_distance,
+                speed,
+                cargo,
+                available_fuels,
+                cond["weather"],
+                cond["wind_speed"],
+                cond["wave_height"],
+                cond["current_speed"]
+            )
+
+            # ------------------------------------------------
+            # NEW:
+            # Travel time = distance / speed in km/h
+            # 1 knot = 1.852 km/h
+            # ------------------------------------------------
+
+            hours = calculate_travel_time(
+                segment_distance,
                 best["speed"]
-                * 1.852
+            )
+
+            total_hours += hours
+            speed_sum += best["speed"]
+
+            total_fuel += (
+                best["fuel_consumption"]
+            )
+
+            total_cost += (
+                best["cost"]
+            )
+
+            total_co2 += (
+                best["co2"]
+            )
+
+            alert = alert_level(
+                cond["weather"],
+                cond["wind_speed"],
+                cond["wave_height"]
+            )
+
+            segment_display.append({
+
+                "Segment":
+                    cond["segment"],
+
+                "Distance (km)":
+                    round(
+                        segment_distance,
+                        1
+                    ),
+
+                "Weather":
+                    cond["weather"],
+
+                "Wind (kn)":
+                    round(
+                        cond["wind_speed"],
+                        1
+                    ),
+
+                "Wave (m)":
+                    round(
+                        cond["wave_height"],
+                        1
+                    ),
+
+                "Current (kn)":
+                    round(
+                        cond["current_speed"],
+                        1
+                    ),
+
+                "Best Fuel":
+                    best["fuel"],
+
+                "Best Speed":
+                    round(
+                        best["speed"],
+                        1
+                    ),
+
+                # NEW
+                "Travel Time (h)":
+                    round(
+                        hours,
+                        2
+                    ),
+
+                # NEW
+                "Travel Time (days)":
+                    round(
+                        hours / 24,
+                        3
+                    ),
+
+                "Fuel (t)":
+                    round(
+                        best["fuel_consumption"],
+                        2
+                    ),
+
+                "CO₂ (t)":
+                    round(
+                        best["co2"],
+                        2
+                    ),
+
+                "Cost (₹)":
+                    round(
+                        best["cost"],
+                        0
+                    ),
+
+                "Alert":
+                    alert
+
+            })
+
+            voyage_rows.append((
+
+                datetime.now().strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
+
+                int(
+                    cond["segment"]
+                ),
+
+                segment_distance,
+
+                cond["weather"],
+
+                cond["wind_speed"],
+
+                cond["wind_direction"],
+
+                cond["wave_height"],
+
+                cond["current_speed"],
+
+                cond["current_direction"],
+
+                best["fuel"],
+
+                best["speed"],
+
+                best["fuel_consumption"],
+
+                best["co2"],
+
+                best["cost"],
+
+                alert
+
+            ))
+
+        # ----------------------------------------------------
+        # NEW:
+        # Calculate total travel days
+        # ----------------------------------------------------
+
+        total_days = total_hours / 24.0
+
+        average_speed = (
+            speed_sum / len(conditions)
+            if conditions
+            else speed
+        )
+
+        # Planned-speed baseline
+        baseline_hours = calculate_travel_time(
+            route_distance,
+            speed
+        )
+
+        baseline_days = baseline_hours / 24.0
+
+        # Difference caused by optimized speeds
+        delay_hours = (
+            total_hours
+            - baseline_hours
+        )
+
+        delay_days = delay_hours / 24.0
+
+        # ETA
+        estimated_arrival = (
+            datetime.now()
+            + timedelta(
+                hours=total_hours
             )
         )
 
-        total_hours += hours
-
-        total_fuel += (
-            best["fuel_consumption"]
+        estimated_arrival_text = (
+            estimated_arrival.strftime(
+                "%d %b %Y, %I:%M %p"
+            )
         )
 
-        total_cost += (
-            best["cost"]
+        save_voyage_segments(
+            voyage_rows
         )
 
-        total_co2 += (
-            best["co2"]
+        st.session_state[
+            "voyage_conditions"
+        ] = conditions
+
+        st.session_state[
+            "voyage_segments_df"
+        ] = pd.DataFrame(
+            segment_display
         )
 
-        alert = alert_level(
-            cond["weather"],
-            cond["wind_speed"],
-            cond["wave_height"]
+        st.session_state[
+            "voyage_total_fuel"
+        ] = total_fuel
+
+        st.session_state[
+            "voyage_total_cost"
+        ] = total_cost
+
+        st.session_state[
+            "voyage_total_co2"
+        ] = total_co2
+
+        st.session_state[
+            "voyage_hours"
+        ] = total_hours
+
+        # NEW
+        st.session_state[
+            "voyage_days"
+        ] = total_days
+
+        # NEW
+        st.session_state[
+            "voyage_average_speed"
+        ] = average_speed
+
+        # NEW
+        st.session_state[
+            "voyage_arrival"
+        ] = estimated_arrival_text
+
+        # NEW
+        st.session_state[
+            "voyage_baseline_hours"
+        ] = baseline_hours
+
+        # NEW
+        st.session_state[
+            "voyage_baseline_days"
+        ] = baseline_days
+
+        # NEW
+        st.session_state[
+            "voyage_delay_hours"
+        ] = delay_hours
+
+        # NEW
+        st.session_state[
+            "voyage_delay_days"
+        ] = delay_days
+
+        st.session_state[
+            "route"
+        ] = (
+
+            start_port,
+            end_port,
+
+            start_lat,
+            start_lon,
+
+            end_lat,
+            end_lon
+
         )
 
-        segment_display.append({
+        st.session_state[
+            "voyage_done"
+        ] = True
 
-            "Segment":
-                cond["segment"],
-
-            "Distance (km)":
-                round(
-                    segment_distance,
-                    1
-                ),
-
-            "Weather":
-                cond["weather"],
-
-            "Wind (kn)":
-                round(
-                    cond["wind_speed"],
-                    1
-                ),
-
-            "Wave (m)":
-                round(
-                    cond["wave_height"],
-                    1
-                ),
-
-            "Current (kn)":
-                round(
-                    cond["current_speed"],
-                    1
-                ),
-
-            "Best Fuel":
-                best["fuel"],
-
-            "Best Speed":
-                round(
-                    best["speed"],
-                    1
-                ),
-
-            "Fuel (t)":
-                round(
-                    best["fuel_consumption"],
-                    2
-                ),
-
-            "CO₂ (t)":
-                round(
-                    best["co2"],
-                    2
-                ),
-
-            "Cost (₹)":
-                round(
-                    best["cost"],
-                    0
-                ),
-
-            "Alert":
-                alert
-
-        })
-
-        voyage_rows.append((
-
-            datetime.now().strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
-
-            int(
-                cond["segment"]
-            ),
-
-            segment_distance,
-
-            cond["weather"],
-
-            cond["wind_speed"],
-
-            cond["wind_direction"],
-
-            cond["wave_height"],
-
-            cond["current_speed"],
-
-            cond["current_direction"],
-
-            best["fuel"],
-
-            best["speed"],
-
-            best["fuel_consumption"],
-
-            best["co2"],
-
-            best["cost"],
-
-            alert
-
-        ))
-
-    save_voyage_segments(
-        voyage_rows
-    )
-
-    st.session_state[
-        "voyage_conditions"
-    ] = conditions
-
-    st.session_state[
-        "voyage_segments_df"
-    ] = pd.DataFrame(
-        segment_display
-    )
-
-    st.session_state[
-        "voyage_total_fuel"
-    ] = total_fuel
-
-    st.session_state[
-        "voyage_total_cost"
-    ] = total_cost
-
-    st.session_state[
-        "voyage_total_co2"
-    ] = total_co2
-
-    st.session_state[
-        "voyage_hours"
-    ] = total_hours
-
-    st.session_state[
-        "route"
-    ] = (
-
-        start_port,
-        end_port,
-
-        start_lat,
-        start_lon,
-
-        end_lat,
-        end_lon
-
-    )
-
-    st.session_state[
-        "voyage_done"
-    ] = True
-
-    st.session_state[
-        "track_step"
-    ] = 0
+        st.session_state[
+            "track_step"
+        ] = 0
 
 
 # ============================================================
@@ -2231,6 +2470,42 @@ if st.session_state.get(
         ]
     )
 
+    total_days = (
+        st.session_state[
+            "voyage_days"
+        ]
+    )
+
+    average_speed = (
+        st.session_state[
+            "voyage_average_speed"
+        ]
+    )
+
+    voyage_arrival = (
+        st.session_state[
+            "voyage_arrival"
+        ]
+    )
+
+    baseline_days = (
+        st.session_state[
+            "voyage_baseline_days"
+        ]
+    )
+
+    delay_hours = (
+        st.session_state[
+            "voyage_delay_hours"
+        ]
+    )
+
+    delay_days = (
+        st.session_state[
+            "voyage_delay_days"
+        ]
+    )
+
     voyage_df = (
         st.session_state[
             "voyage_segments_df"
@@ -2250,26 +2525,101 @@ if st.session_state.get(
         hide_index=True
     )
 
-    t1, t2, t3, t4 = st.columns(4)
+    # --------------------------------------------------------
+    # NEW TIME & ETA DASHBOARD
+    # --------------------------------------------------------
+
+    st.markdown(
+        '<div class="section-title">'
+        '⏱️ Voyage Time & Arrival Prediction'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    t1, t2, t3, t4, t5 = st.columns(5)
 
     t1.metric(
-        "Total Fuel",
-        f"{total_fuel:.2f} t"
+        "📏 Distance",
+        f"{route_distance:,.0f} km"
     )
 
     t2.metric(
-        "Total Cost",
-        f"₹{total_cost/100000:.2f} L"
+        "⚡ Avg Optimized Speed",
+        f"{average_speed:.1f} kn"
     )
 
     t3.metric(
-        "Total CO₂",
-        f"{total_co2:.2f} t"
+        "⏱️ Travel Time",
+        f"{total_hours:.1f} h"
     )
 
     t4.metric(
-        "Estimated ETA",
-        f"{total_hours:.1f} h"
+        "📅 Travel Days",
+        f"{total_days:.2f} days"
+    )
+
+    t5.metric(
+        "🏁 ETA",
+        voyage_arrival
+    )
+
+    # --------------------------------------------------------
+    # WEATHER / SPEED EFFECT
+    # --------------------------------------------------------
+
+    if delay_hours > 0.1:
+
+        st.warning(
+            f"🌦️ Weather/optimization impact: "
+            f"the optimized voyage takes approximately "
+            f"{delay_hours:.1f} additional hours "
+            f"({delay_days:.2f} days) compared with "
+            f"travelling the same route continuously at "
+            f"{speed:.1f} knots."
+        )
+
+    else:
+
+        st.success(
+            "✅ The optimized voyage time is very close "
+            "to the planned-speed estimate."
+        )
+
+    st.markdown(
+        f"""
+        <div class="card">
+
+        <b>📌 Planned-speed estimate:</b>
+        {baseline_days:.2f} days
+        at {speed:.1f} knots
+
+        <br><br>
+
+        <b>🌦️ Weather-adjusted optimized estimate:</b>
+        {total_days:.2f} days
+
+        <br><br>
+
+        <b>⚡ Average optimized speed:</b>
+        {average_speed:.1f} knots
+
+        <br><br>
+
+        <b>🏁 Estimated arrival:</b>
+        {voyage_arrival}
+
+        <br><br>
+
+        <b>How it works:</b>
+        Each route segment is calculated separately using
+        its optimized speed. If weather becomes worse,
+        the optimizer reduces the allowed speed. Lower speed
+        means more hours are required to cover the same
+        distance, so the total travel days automatically increase.
+
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     st.markdown(
@@ -2297,16 +2647,23 @@ if st.session_state.get(
         label="Wind speed"
     )
 
+    ax3.plot(
+        voyage_df["Segment"],
+        voyage_df["Best Speed"],
+        marker="o",
+        label="Optimized speed"
+    )
+
     ax3.set_xlabel(
         "Voyage Segment"
     )
 
     ax3.set_ylabel(
-        "Condition value"
+        "Condition / Speed"
     )
 
     ax3.set_title(
-        "Dynamic Environmental Conditions"
+        "Dynamic Environmental Conditions and Optimized Speed"
     )
 
     ax3.legend()
@@ -2419,7 +2776,8 @@ step = int(
 
 progress = (
     step
-    / max(
+    /
+    max(
         1,
         int(segments)
     )
@@ -2479,15 +2837,10 @@ active = conditions[
 if step == 0:
 
     active_weather = weather
-
     active_wind = wind_speed_now
-
     active_wave = wave_height_now
-
     active_current = current_speed_now
-
     active_fuel = fuel_type
-
     active_speed = speed
 
 else:
@@ -2568,6 +2921,7 @@ live_co2 = calculate_co2(
     live_fuel_rate,
 
     active_fuel
+
 )
 
 
@@ -2580,6 +2934,46 @@ live_alert = alert_level(
     active_wave
 
 )
+
+
+# ============================================================
+# LIVE REMAINING TIME
+# ============================================================
+
+if st.session_state.get(
+    "voyage_done",
+    False
+):
+
+    remaining_distance = (
+        route_distance
+        * (1 - progress)
+    )
+
+    remaining_hours = (
+        total_hours
+        * (1 - progress)
+    )
+
+    remaining_days = (
+        remaining_hours / 24
+    )
+
+else:
+
+    remaining_distance = (
+        route_distance
+        * (1 - progress)
+    )
+
+    remaining_hours = calculate_travel_time(
+        remaining_distance,
+        active_speed
+    )
+
+    remaining_days = (
+        remaining_hours / 24
+    )
 
 
 lm1, lm2, lm3, lm4, lm5, lm6 = st.columns(6)
@@ -2638,6 +3032,26 @@ lm10.metric(
 )
 
 
+# NEW LIVE TIME METRICS
+
+rm1, rm2, rm3 = st.columns(3)
+
+rm1.metric(
+    "Remaining Distance",
+    f"{remaining_distance:,.0f} km"
+)
+
+rm2.metric(
+    "Remaining Time",
+    f"{remaining_hours:.1f} h"
+)
+
+rm3.metric(
+    "Remaining Days",
+    f"{remaining_days:.2f} days"
+)
+
+
 st.markdown(
     f"""
     <div class="card">
@@ -2659,6 +3073,31 @@ st.markdown(
 
     <b>Current environmental condition:</b>
     {active_weather}
+
+    <br>
+
+    <b>Weather speed limit:</b>
+    {weather_speed_limits.get(active_weather, 19):.1f} knots
+
+    <br>
+
+    <b>Optimized live speed:</b>
+    {active_speed:.1f} knots
+
+    <br>
+
+    <b>Remaining distance:</b>
+    {remaining_distance:,.1f} km
+
+    <br>
+
+    <b>Estimated remaining time:</b>
+    {remaining_hours:.1f} hours
+
+    <br>
+
+    <b>Estimated remaining days:</b>
+    {remaining_days:.2f} days
 
     <br>
 
@@ -2694,7 +3133,6 @@ st.markdown(
 )
 
 
-# Route line data
 route_points = pd.DataFrame({
 
     "latitude": np.linspace(
@@ -2712,7 +3150,6 @@ route_points = pd.DataFrame({
 })
 
 
-# Map points
 map_data = pd.DataFrame({
 
     "latitude": [
@@ -2730,7 +3167,6 @@ map_data = pd.DataFrame({
 })
 
 
-# Use PyDeck for an actual route line.
 try:
 
     import pydeck as pdk
@@ -2830,7 +3266,6 @@ try:
 
 except Exception:
 
-    # Fallback if PyDeck is unavailable
     st.map(
         map_data,
         latitude="latitude",
@@ -2878,6 +3313,7 @@ if live_alert == "🔴 Severe":
 
     st.error(
         "⚠️ Severe conditions detected. "
+        "The prototype has reduced the recommended speed. "
         "In a real deployment, an approved navigation/"
         "weather system should be consulted and operating "
         "decisions should be made by qualified personnel."
@@ -2887,8 +3323,8 @@ elif live_alert == "🟠 Caution":
 
     st.warning(
         "⚠️ Caution: environmental resistance is elevated. "
-        "The optimizer can recalculate the local "
-        "fuel/speed plan."
+        "The optimizer has reduced or limited the local "
+        "operating speed. This can increase voyage time."
     )
 
 else:
@@ -2943,6 +3379,9 @@ with c2:
         combinations and minimizes a combined
         cost/emission/speed objective.
 
+        Weather conditions also limit the maximum
+        recommended operating speed.
+
         </div>
         """,
         unsafe_allow_html=True
@@ -2958,8 +3397,11 @@ with c3:
         <h3>03 📡 Live Monitoring</h3>
 
         GPS position and changing weather conditions
-        are monitored. When conditions change,
-        the local plan can be recalculated.
+        are monitored.
+
+        When weather becomes worse, the local speed
+        can be reduced and remaining travel time
+        can increase automatically.
 
         </div>
         """,
@@ -3043,7 +3485,6 @@ if not segment_history.empty:
 
             clear_voyage_segment_history()
 
-            # Clear currently displayed voyage
             st.session_state[
                 "voyage_done"
             ] = False
