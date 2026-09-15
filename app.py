@@ -1107,6 +1107,179 @@ def create_3d_bar_chart(
 
 
 # ============================================================
+# COMPANY FLEET + CUSTOMER ORDER OPTIMIZATION
+# ============================================================
+
+CONTAINER_TYPES = {
+    "20 ft": {"payload_t": 18.0, "label": "20 ft standard container"},
+    "40 ft": {"payload_t": 26.0, "label": "40 ft standard container"},
+    "40 ft High Cube": {"payload_t": 28.0, "label": "40 ft High Cube container"},
+}
+
+
+def generate_sample_fleet(n_ships=100):
+    """Create demo fleet data when a company has not uploaded its own data."""
+    ports = list(WORLD_PORTS.keys())
+    fuels = list(fuel_data.keys())
+    vessel_types = ["Container Ship", "Bulk Carrier", "Tanker", "Cargo Ship"]
+    rows = []
+
+    for i in range(1, int(n_ships) + 1):
+        rng = np.random.default_rng(2026 + i)
+        capacity_t = float(rng.choice([2500, 4000, 6000, 8000, 10000, 12000, 16000, 20000]))
+        fuel = fuels[(i - 1) % len(fuels)]
+        max_speed = float(rng.choice([16, 17, 18, 19, 20, 21]))
+        min_speed = float(max(7, max_speed - rng.choice([6, 7, 8])))
+        tank = float(capacity_t * rng.uniform(3.5, 6.5))
+        avg_consumption = float(max(8, capacity_t / 1000 * rng.uniform(1.5, 2.8)))
+        status = "Available" if i % 11 != 0 else "Maintenance"
+        health = "Normal" if i % 13 != 0 else ("Warning" if i % 7 != 0 else "High Risk")
+        rows.append({
+            "Ship_ID": f"S{i:03d}",
+            "Vessel_Type": vessel_types[(i - 1) % len(vessel_types)],
+            "Capacity_t": round(capacity_t, 0),
+            "Fuel": fuel,
+            "Fuel_Tank_t": round(tank, 1),
+            "Max_Speed_kn": max_speed,
+            "Min_Speed_kn": min_speed,
+            "Current_Location": ports[(i * 7) % len(ports)],
+            "Availability": status,
+            "Health": health,
+            "Avg_Consumption_t_per_1000km": round(avg_consumption, 2),
+        })
+    return pd.DataFrame(rows)
+
+
+def normalize_fleet_dataframe(df):
+    """Accept common company CSV/Excel column names and normalize them."""
+    data = df.copy()
+    data.columns = [str(c).strip() for c in data.columns]
+    aliases = {
+        "ship_id": ["ship_id", "ship id", "ship", "vessel_id", "vessel id", "name"],
+        "vessel_type": ["vessel_type", "vessel type", "ship_type", "ship type", "type"],
+        "capacity_t": ["capacity_t", "capacity", "capacity tonnes", "capacity_tonnes", "cargo capacity"],
+        "fuel": ["fuel", "fuel_type", "fuel type", "current fuel"],
+        "fuel_tank_t": ["fuel_tank_t", "fuel tank", "fuel tank tonnes", "tank capacity"],
+        "max_speed_kn": ["max_speed_kn", "max speed", "max speed knots", "maximum speed"],
+        "min_speed_kn": ["min_speed_kn", "min speed", "min speed knots", "minimum speed"],
+        "current_location": ["current_location", "current location", "location", "port", "current port"],
+        "availability": ["availability", "status", "available"],
+        "health": ["health", "health status", "condition"],
+        "avg_consumption_t_per_1000km": ["avg_consumption_t_per_1000km", "avg consumption", "consumption", "fuel consumption"],
+    }
+    lower_map = {str(c).strip().lower(): c for c in data.columns}
+    renamed = {}
+    for target, choices in aliases.items():
+        for choice in choices:
+            if choice.lower() in lower_map:
+                renamed[lower_map[choice.lower()]] = target
+                break
+    data = data.rename(columns=renamed)
+
+    defaults = generate_sample_fleet(max(len(data), 1))
+    required_defaults = {
+        "Ship_ID": "ship_id", "Vessel_Type": "vessel_type", "Capacity_t": "capacity_t",
+        "Fuel": "fuel", "Fuel_Tank_t": "fuel_tank_t", "Max_Speed_kn": "max_speed_kn",
+        "Min_Speed_kn": "min_speed_kn", "Current_Location": "current_location",
+        "Availability": "availability", "Health": "health",
+        "Avg_Consumption_t_per_1000km": "avg_consumption_t_per_1000km",
+    }
+    for target, source in required_defaults.items():
+        if source not in data.columns:
+            data[source] = defaults[target].values[:len(data)]
+
+    for col in ["capacity_t", "fuel_tank_t", "max_speed_kn", "min_speed_kn", "avg_consumption_t_per_1000km"]:
+        data[col] = pd.to_numeric(data[col], errors="coerce")
+    data["capacity_t"] = data["capacity_t"].fillna(5000).clip(lower=100)
+    data["fuel_tank_t"] = data["fuel_tank_t"].fillna(data["capacity_t"] * 4)
+    data["max_speed_kn"] = data["max_speed_kn"].fillna(18).clip(lower=5)
+    data["min_speed_kn"] = data["min_speed_kn"].fillna(8).clip(lower=3)
+    data["avg_consumption_t_per_1000km"] = data["avg_consumption_t_per_1000km"].fillna(data["capacity_t"] / 1000 * 2)
+    data["fuel"] = data["fuel"].astype(str).str.strip().where(data["fuel"].astype(str).str.strip().isin(fuel_data), "Diesel")
+    data["availability"] = data["availability"].astype(str).str.strip().replace({"nan": "Available", "available": "Available", "AVAILABLE": "Available"})
+    data["health"] = data["health"].astype(str).str.strip().replace({"nan": "Normal", "normal": "Normal"})
+    data["current_location"] = data["current_location"].astype(str).str.strip()
+    data["ship_id"] = data["ship_id"].astype(str).str.strip()
+    data["vessel_type"] = data["vessel_type"].astype(str).str.strip()
+
+    return data[
+        ["ship_id", "vessel_type", "capacity_t", "fuel", "fuel_tank_t",
+         "max_speed_kn", "min_speed_kn", "current_location", "availability",
+         "health", "avg_consumption_t_per_1000km"]
+    ].reset_index(drop=True)
+
+
+def port_distance_km(port_a, port_b):
+    if port_a not in WORLD_PORTS or port_b not in WORLD_PORTS:
+        return 0.0
+    return haversine_km(*WORLD_PORTS[port_a], *WORLD_PORTS[port_b])
+
+
+def fleet_order_optimization(fleet_df, origin, destination, cargo_t, deadline_days, weather, wind_speed, wave_height, current_speed):
+    """Select the smallest practical fleet first, then rank ships by cost/ETA/health."""
+    route_km = port_distance_km(origin, destination)
+    if route_km <= 0:
+        return None
+
+    working = fleet_df.copy()
+    working["reposition_km"] = working["current_location"].apply(lambda x: port_distance_km(x, origin))
+    working["voyage_km"] = route_km + working["reposition_km"]
+    working["weather_factor"] = [
+        environmental_factor(weather, wind_speed, wave_height, current_speed)
+        for _ in range(len(working))
+    ]
+    working["planned_speed_kn"] = np.minimum(
+        working["max_speed_kn"],
+        np.maximum(working["min_speed_kn"], 16.0)
+    )
+    working["eta_days"] = working["voyage_km"] / (working["planned_speed_kn"] * 1.852 * 24)
+    working["fuel_t"] = (
+        working["avg_consumption_t_per_1000km"]
+        * working["voyage_km"] / 1000
+        * working["weather_factor"]
+    )
+    working["fuel_cost"] = working.apply(lambda r: r["fuel_t"] * fuel_data[r["fuel"]]["cost"], axis=1)
+    working["co2_t"] = working.apply(lambda r: r["fuel_t"] * fuel_data[r["fuel"]]["co2_factor"], axis=1)
+
+    eligible = working[
+        (working["availability"].str.lower() == "available")
+        & (~working["health"].str.lower().isin(["critical", "high risk", "maintenance"]))
+        & (working["capacity_t"] > 0)
+    ].copy()
+
+    if eligible.empty:
+        return {"route_km": route_km, "eligible": eligible, "selected": eligible, "cargo_shortfall": cargo_t}
+
+    health_penalty = eligible["health"].str.lower().map({"warning": 1.0, "normal": 0.0}).fillna(0.5)
+    fuel_rank = eligible["fuel_cost"] / eligible["capacity_t"].replace(0, np.nan)
+    eta_penalty = np.maximum(eligible["eta_days"] - float(deadline_days), 0) * 10000
+    eligible["selection_score"] = (
+        fuel_rank * 0.50
+        + eligible["co2_t"] / eligible["capacity_t"] * 0.25
+        + eligible["reposition_km"] / 1000 * 0.10
+        + eta_penalty
+        + health_penalty * 50
+    )
+    eligible = eligible.sort_values(["selection_score", "capacity_t"], ascending=[True, False]).reset_index(drop=True)
+
+    selected_rows = []
+    carried = 0.0
+    for _, row in eligible.iterrows():
+        selected_rows.append(row)
+        carried += float(row["capacity_t"])
+        if carried >= cargo_t:
+            break
+
+    selected = pd.DataFrame(selected_rows)
+    return {
+        "route_km": route_km,
+        "eligible": eligible,
+        "selected": selected,
+        "cargo_shortfall": max(0.0, cargo_t - carried),
+    }
+
+
+# ============================================================
 # MODEL FUNCTIONS
 # ============================================================
 
@@ -1808,6 +1981,259 @@ predict_button = st.sidebar.button(
     use_container_width=True
 
 )
+
+
+# ============================================================
+# COMPANY FLEET ORDER PLANNER
+# ============================================================
+
+st.markdown(
+    '<div class="section-title">'
+    '🏢 Company Fleet & Customer Order Optimization'
+    '</div>',
+    unsafe_allow_html=True
+)
+
+st.info(
+    "Upload the company's real fleet data when available. "
+    "If no fleet file is available, the prototype can generate a simulated N-ship fleet for demonstration."
+)
+
+fleet_setup_1, fleet_setup_2 = st.columns(2)
+
+with fleet_setup_1:
+    fleet_count = st.number_input(
+        "Number of ships (N)",
+        min_value=1,
+        max_value=5000,
+        value=100,
+        step=1,
+        key="fleet_count_n"
+    )
+
+with fleet_setup_2:
+    fleet_file = st.file_uploader(
+        "📤 Upload company fleet CSV / Excel",
+        type=["csv", "xlsx", "xls"],
+        key="company_fleet_upload"
+    )
+
+if fleet_file is not None:
+    try:
+        if fleet_file.name.lower().endswith(".csv"):
+            uploaded_fleet = pd.read_csv(fleet_file)
+        else:
+            uploaded_fleet = pd.read_excel(fleet_file)
+        st.session_state["company_fleet_df"] = normalize_fleet_dataframe(uploaded_fleet)
+        st.session_state["company_fleet_source"] = f"Company upload: {fleet_file.name}"
+    except Exception as fleet_error:
+        st.error(f"Could not read the fleet file: {fleet_error}")
+
+if "company_fleet_df" not in st.session_state:
+    st.session_state["company_fleet_df"] = generate_sample_fleet(int(fleet_count))
+    st.session_state["company_fleet_source"] = "Simulated fleet"
+
+fleet_df = st.session_state["company_fleet_df"].copy()
+
+fc1, fc2, fc3 = st.columns(3)
+with fc1:
+    st.metric("Fleet Ships", len(fleet_df))
+with fc2:
+    st.metric("Available Ships", int((fleet_df["availability"].str.lower() == "available").sum()))
+with fc3:
+    st.metric("Total Capacity", f"{fleet_df['capacity_t'].sum():,.0f} t")
+
+st.caption(f"Fleet source: **{st.session_state.get('company_fleet_source', 'Simulated fleet')}**")
+
+with st.expander("🔎 View / verify fleet data", expanded=False):
+    st.dataframe(
+        fleet_df.rename(columns={
+            "ship_id": "Ship ID",
+            "vessel_type": "Vessel Type",
+            "capacity_t": "Capacity (t)",
+            "fuel": "Fuel",
+            "fuel_tank_t": "Fuel Tank (t)",
+            "max_speed_kn": "Max Speed (kn)",
+            "min_speed_kn": "Min Speed (kn)",
+            "current_location": "Current Location",
+            "availability": "Availability",
+            "health": "Health",
+            "avg_consumption_t_per_1000km": "Avg Consumption (t/1000 km)"
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+
+st.markdown("### 📦 Customer Order")
+
+order1, order2, order3 = st.columns(3)
+with order1:
+    order_origin = st.selectbox(
+        "From",
+        list(WORLD_PORTS.keys()),
+        index=list(WORLD_PORTS.keys()).index("Chennai, India") if "Chennai, India" in WORLD_PORTS else 0,
+        key="fleet_order_origin"
+    )
+with order2:
+    order_destination = st.selectbox(
+        "To",
+        list(WORLD_PORTS.keys()),
+        index=list(WORLD_PORTS.keys()).index("Mumbai, India") if "Mumbai, India" in WORLD_PORTS else 1,
+        key="fleet_order_destination"
+    )
+with order3:
+    order_cargo_t = st.number_input(
+        "Customer Cargo (tonnes)",
+        min_value=100.0,
+        max_value=10000000.0,
+        value=100000.0,
+        step=1000.0,
+        key="fleet_order_cargo"
+    )
+
+order4, order5, order6 = st.columns(3)
+with order4:
+    order_deadline_days = st.number_input(
+        "Required Delivery (days)",
+        min_value=1.0,
+        max_value=365.0,
+        value=5.0,
+        step=0.5,
+        key="fleet_order_deadline"
+    )
+with order5:
+    container_type = st.selectbox(
+        "Container Size",
+        list(CONTAINER_TYPES.keys()),
+        key="fleet_container_type"
+    )
+with order6:
+    order_weather = st.selectbox(
+        "Route Weather",
+        ["Normal", "Calm Sea", "Moderate", "Heavy Weather", "Storm"],
+        key="fleet_order_weather"
+    )
+
+weather_inputs_1, weather_inputs_2, weather_inputs_3 = st.columns(3)
+with weather_inputs_1:
+    order_wind = st.number_input("Route Wind (knots)", 0.0, 40.0, 10.0, 1.0, key="fleet_order_wind")
+with weather_inputs_2:
+    order_wave = st.number_input("Route Wave Height (m)", 0.1, 8.0, 1.2, 0.1, key="fleet_order_wave")
+with weather_inputs_3:
+    order_current = st.number_input("Route Current (knots)", 0.0, 5.0, 0.6, 0.1, key="fleet_order_current")
+
+optimize_fleet_button = st.button(
+    "⚛️ Find Best Ships for Customer Order",
+    type="primary",
+    use_container_width=True,
+    key="optimize_company_fleet"
+)
+
+if optimize_fleet_button:
+    if order_origin == order_destination:
+        st.error("From and To ports must be different.")
+    else:
+        fleet_result = fleet_order_optimization(
+            fleet_df,
+            order_origin,
+            order_destination,
+            float(order_cargo_t),
+            float(order_deadline_days),
+            order_weather,
+            float(order_wind),
+            float(order_wave),
+            float(order_current)
+        )
+        st.session_state["fleet_order_result"] = fleet_result
+        st.session_state["fleet_order_meta"] = {
+            "origin": order_origin,
+            "destination": order_destination,
+            "cargo_t": float(order_cargo_t),
+            "deadline_days": float(order_deadline_days),
+            "container_type": container_type,
+            "weather": order_weather,
+            "wind": float(order_wind),
+            "wave": float(order_wave),
+            "current": float(order_current),
+        }
+
+if "fleet_order_result" in st.session_state:
+    result = st.session_state["fleet_order_result"]
+    meta = st.session_state["fleet_order_meta"]
+    selected = result["selected"].copy()
+    route_km = float(result["route_km"])
+    container_payload = CONTAINER_TYPES[meta["container_type"]]["payload_t"]
+    required_containers = int(math.ceil(meta["cargo_t"] / container_payload))
+
+    if selected.empty or result["cargo_shortfall"] > 0:
+        assigned_capacity = float(selected["capacity_t"].sum()) if not selected.empty else 0.0
+        st.error(
+            f"⚠️ Fleet capacity is insufficient. Customer requested {meta['cargo_t']:,.0f} t, "
+            f"but only {assigned_capacity:,.0f} t is currently assignable from eligible ships. "
+            f"Shortfall: {result['cargo_shortfall']:,.0f} t."
+        )
+    else:
+        selected["Cargo_Assigned_t"] = 0.0
+        remaining = float(meta["cargo_t"])
+        for idx in selected.index:
+            assigned = min(float(selected.loc[idx, "capacity_t"]), remaining)
+            selected.loc[idx, "Cargo_Assigned_t"] = assigned
+            remaining -= assigned
+            if remaining <= 0:
+                break
+        selected["Container_Count"] = np.ceil(selected["Cargo_Assigned_t"] / container_payload).astype(int)
+
+        total_fuel = float(selected["fuel_t"].sum())
+        total_cost = float(selected["fuel_cost"].sum())
+        total_co2 = float(selected["co2_t"].sum())
+        max_eta = float(selected["eta_days"].max())
+        total_capacity = float(selected["capacity_t"].sum())
+        reserve_fuel = total_fuel * 0.10
+        recommended_fuel = total_fuel + reserve_fuel
+
+        st.success(
+            f"✅ Recommended fleet: **{len(selected)} ships** for {meta['cargo_t']:,.0f} tonnes. "
+            f"Route distance: **{route_km:,.0f} km**."
+        )
+
+        km1, km2, km3, km4 = st.columns(4)
+        km1.metric("Ships Selected", len(selected))
+        km2.metric("Containers", f"{required_containers:,}")
+        km3.metric("Estimated Fuel", f"{recommended_fuel:,.2f} t")
+        km4.metric("Estimated CO₂", f"{total_co2:,.2f} t")
+
+        km5, km6, km7 = st.columns(3)
+        km5.metric("Fuel Cost", f"₹{total_cost:,.0f}")
+        km6.metric("Fleet Capacity", f"{total_capacity:,.0f} t")
+        km7.metric("Latest ETA", f"{max_eta:.2f} days")
+
+        if max_eta <= meta["deadline_days"]:
+            st.success(f"🟢 Delivery target met: estimated fleet ETA {max_eta:.2f} days ≤ {meta['deadline_days']:.2f} days.")
+        else:
+            st.warning(f"🟡 Delivery target risk: estimated fleet ETA {max_eta:.2f} days > {meta['deadline_days']:.2f} days.")
+
+        display_selected = selected[[
+            "ship_id", "current_location", "capacity_t", "cargo_assigned_t", "container_count",
+            "fuel", "fuel_t", "fuel_cost", "co2_t", "planned_speed_kn", "eta_days", "health"
+        ]].copy()
+        display_selected.columns = [
+            "Ship ID", "Current Location", "Capacity (t)", "Cargo Assigned (t)", "Containers",
+            "Fuel", "Fuel (t)", "Fuel Cost (₹)", "CO₂ (t)", "Planned Speed (kn)", "ETA (days)", "Health"
+        ]
+        st.markdown("#### 🚢 Selected Ships & Cargo Allocation")
+        st.dataframe(display_selected, use_container_width=True, hide_index=True)
+
+        st.markdown("#### 🧠 Why these ships were selected")
+        st.write(
+            "The prototype first removes unavailable/high-risk ships, then compares the remaining ships using "
+            "capacity, fuel consumption/cost, CO₂, repositioning distance, delivery time and health. "
+            "It keeps selecting the best-ranked ships until the customer cargo requirement is satisfied."
+        )
+
+        st.caption(
+            "Prototype note: fleet data and sensor/health values can be simulated for demonstration. "
+            "Real deployment should use approved company telemetry, vessel specifications, weather data and qualified operational decisions."
+        )
 
 
 # ============================================================
