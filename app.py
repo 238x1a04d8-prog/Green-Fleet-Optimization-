@@ -2029,19 +2029,60 @@ if fleet_file is not None:
     except Exception as fleet_error:
         st.error(f"Could not read the fleet file: {fleet_error}")
 
+# Keep the fleet dataframe robust across Streamlit reruns and older
+# session-state data created by earlier versions of this feature.
 if "company_fleet_df" not in st.session_state:
+    st.session_state["company_fleet_df"] = generate_sample_fleet(int(fleet_count))
+    st.session_state["company_fleet_source"] = "Simulated fleet"
+
+# If the user is using the simulated fleet and changes N, regenerate the
+# sample fleet so the requested N is actually reflected.
+if (
+    st.session_state.get("company_fleet_source") == "Simulated fleet"
+    and len(st.session_state.get("company_fleet_df", pd.DataFrame())) != int(fleet_count)
+):
+    st.session_state["company_fleet_df"] = generate_sample_fleet(int(fleet_count))
+
+# Normalize BOTH uploaded and previously-created session data. This also
+# adds missing columns such as availability/health from older app versions.
+try:
+    st.session_state["company_fleet_df"] = normalize_fleet_dataframe(
+        st.session_state["company_fleet_df"]
+    )
+except Exception as fleet_normalize_error:
+    st.warning(
+        f"Fleet data needed repair, so a sample fleet was created: {fleet_normalize_error}"
+    )
     st.session_state["company_fleet_df"] = generate_sample_fleet(int(fleet_count))
     st.session_state["company_fleet_source"] = "Simulated fleet"
 
 fleet_df = st.session_state["company_fleet_df"].copy()
 
+# Defensive checks prevent a single missing/invalid column from crashing
+# the dashboard.
+if "availability" not in fleet_df.columns:
+    fleet_df["availability"] = "Available"
+if "capacity_t" not in fleet_df.columns:
+    fleet_df["capacity_t"] = 5000.0
+
+available_mask = (
+    fleet_df["availability"]
+    .astype(str)
+    .str.strip()
+    .str.lower()
+    .eq("available")
+)
+
 fc1, fc2, fc3 = st.columns(3)
 with fc1:
     st.metric("Fleet Ships", len(fleet_df))
 with fc2:
-    st.metric("Available Ships", int((fleet_df["availability"].str.lower() == "available").sum()))
+    st.metric("Available Ships", int(available_mask.sum()))
 with fc3:
-    st.metric("Total Capacity", f"{fleet_df['capacity_t'].sum():,.0f} t")
+    st.metric(
+        "Total Capacity",
+        f"{pd.to_numeric(fleet_df['capacity_t'], errors='coerce').fillna(0).sum():,.0f} t"
+    )
 
 st.caption(f"Fleet source: **{st.session_state.get('company_fleet_source', 'Simulated fleet')}**")
 
