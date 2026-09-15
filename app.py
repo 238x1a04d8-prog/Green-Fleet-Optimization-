@@ -9,20 +9,6 @@ import math
 # ============================================================
 # QUANTUM PREDICTORS - GREEN FLEET OPTIMIZATION
 # ============================================================
-# Integrated prototype:
-# 1. Fuel prediction
-# 2. Available-fuel constrained optimization
-# 3. Petrol support
-# 4. Route/segment based voyage model
-# 5. Wind / wave / current effects
-# 6. Live voyage tracking simulation
-# 7. Weather and operational alerts
-# 8. SQLite history
-# 9. Interactive worldwide voyage map
-# 10. Worldwide destination selection
-# 11. Route line visualization
-# 12. Clear prediction + voyage history
-# ============================================================
 
 DB_NAME = "fleet_database.db"
 
@@ -163,9 +149,7 @@ PORT_NAMES = list(WORLD_PORTS.keys())
 # ============================================================
 
 def init_database():
-
     conn = sqlite3.connect(DB_NAME)
-
     cur = conn.cursor()
 
     cur.execute("""
@@ -236,9 +220,7 @@ def save_prediction(
     cost_saving,
     co2_reduction
 ):
-
     conn = sqlite3.connect(DB_NAME)
-
     cur = conn.cursor()
 
     cur.execute("""
@@ -293,7 +275,6 @@ def save_prediction(
 
 
 def load_prediction_history(limit=20):
-
     conn = sqlite3.connect(DB_NAME)
 
     df = pd.read_sql_query("""
@@ -324,24 +305,17 @@ def load_prediction_history(limit=20):
     """, conn, params=(limit,))
 
     conn.close()
-
     return df
 
 
 def clear_prediction_history():
-
     conn = sqlite3.connect(DB_NAME)
-
-    conn.execute(
-        "DELETE FROM predictions"
-    )
-
+    conn.execute("DELETE FROM predictions")
     conn.commit()
     conn.close()
 
 
 def save_voyage_segments(rows):
-
     conn = sqlite3.connect(DB_NAME)
 
     conn.executemany("""
@@ -370,7 +344,6 @@ def save_voyage_segments(rows):
 
 
 def load_segment_history(limit=50):
-
     conn = sqlite3.connect(DB_NAME)
 
     df = pd.read_sql_query("""
@@ -395,18 +368,12 @@ def load_segment_history(limit=50):
     """, conn, params=(limit,))
 
     conn.close()
-
     return df
 
 
 def clear_voyage_segment_history():
-
     conn = sqlite3.connect(DB_NAME)
-
-    conn.execute(
-        "DELETE FROM voyage_segments"
-    )
-
+    conn.execute("DELETE FROM voyage_segments")
     conn.commit()
     conn.close()
 
@@ -558,6 +525,27 @@ fuel_data = {
 }
 
 
+# ============================================================
+# FUEL COLORS FOR 3D GRAPHS
+# ============================================================
+
+FUEL_COLORS = {
+
+    "Diesel": "#4B5563",
+
+    "Petrol": "#22C55E",
+
+    "LNG": "#3B82F6",
+
+    "Methanol": "#F97316",
+
+    "Hydrogen": "#A855F7",
+
+    "Ammonia": "#FACC15"
+
+}
+
+
 weather_factor_map = {
 
     "Calm Sea": 0.92,
@@ -567,6 +555,260 @@ weather_factor_map = {
     "Storm": 1.32
 
 }
+
+
+# ============================================================
+# 3D GRAPH FUNCTION
+# ============================================================
+
+def create_3d_bar_chart(
+    fuels,
+    values,
+    title,
+    ylabel
+):
+
+    fig = plt.figure(
+        figsize=(10, 5.8)
+    )
+
+    ax = fig.add_subplot(
+        111,
+        projection="3d"
+    )
+
+    values = np.array(
+        values,
+        dtype=float
+    )
+
+    total = float(
+        np.sum(values)
+    )
+
+    if total > 0:
+
+        percentages = (
+            values / total
+        ) * 100
+
+    else:
+
+        percentages = np.zeros(
+            len(values)
+        )
+
+    x = np.arange(
+        len(fuels)
+    )
+
+    y = np.zeros(
+        len(fuels)
+    )
+
+    z = np.zeros(
+        len(fuels)
+    )
+
+    dx = np.full(
+        len(fuels),
+        0.65
+    )
+
+    dy = np.full(
+        len(fuels),
+        0.65
+    )
+
+    dz = values
+
+    colors = [
+
+        FUEL_COLORS.get(
+            fuel,
+            "#48e0a0"
+        )
+
+        for fuel in fuels
+
+    ]
+
+    ax.bar3d(
+
+        x,
+        y,
+        z,
+
+        dx,
+        dy,
+        dz,
+
+        color=colors,
+
+        edgecolor="white",
+
+        linewidth=0.8,
+
+        shade=True,
+
+        alpha=0.95
+
+    )
+
+    max_value = (
+
+        float(np.max(values))
+        if len(values) > 0
+        else 1.0
+
+    )
+
+    if max_value <= 0:
+        max_value = 1.0
+
+    for i, (
+        fuel,
+        value,
+        percentage
+    ) in enumerate(
+
+        zip(
+            fuels,
+            values,
+            percentages
+        )
+
+    ):
+
+        # Percentage above each bar
+
+        ax.text(
+
+            i + 0.325,
+
+            0.325,
+
+            value
+            + max_value * 0.10,
+
+            f"{percentage:.1f}%",
+
+            ha="center",
+
+            va="bottom",
+
+            fontsize=11,
+
+            fontweight="bold",
+
+            color="black"
+
+        )
+
+        # Actual value above bar
+
+        ax.text(
+
+            i + 0.325,
+
+            0.325,
+
+            value
+            + max_value * 0.035,
+
+            f"{value:.2f} t",
+
+            ha="center",
+
+            va="bottom",
+
+            fontsize=8,
+
+            color="black"
+
+        )
+
+    ax.set_xticks(
+        x + 0.325
+    )
+
+    ax.set_xticklabels(
+
+        fuels,
+
+        rotation=20,
+
+        ha="right",
+
+        fontsize=9
+
+    )
+
+    ax.set_yticks([])
+
+    ax.set_zlabel(
+        ylabel,
+        fontsize=10
+    )
+
+    ax.set_title(
+
+        title,
+
+        fontsize=15,
+
+        fontweight="bold",
+
+        pad=20
+
+    )
+
+    ax.set_zlim(
+
+        0,
+
+        max_value * 1.28
+
+    )
+
+    ax.view_init(
+
+        elev=22,
+
+        azim=-60
+
+    )
+
+    ax.set_box_aspect(
+
+        (
+            max(len(fuels), 4),
+            1.2,
+            4
+        )
+
+    )
+
+    ax.grid(
+        True,
+        alpha=0.2
+    )
+
+    ax.xaxis.pane.set_alpha(
+        0.08
+    )
+
+    ax.yaxis.pane.set_alpha(
+        0.05
+    )
+
+    ax.zaxis.pane.set_alpha(
+        0.05
+    )
+
+    fig.tight_layout()
+
+    return fig
 
 
 # ============================================================
@@ -719,6 +961,7 @@ def interpolate_position(
 ):
 
     return (
+
         lat1
         + (lat2 - lat1)
         * progress,
@@ -726,6 +969,7 @@ def interpolate_position(
         lon1
         + (lon2 - lon1)
         * progress
+
     )
 
 
@@ -735,84 +979,122 @@ def generate_segment_conditions(
     seed=42
 ):
 
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(
+        seed
+    )
 
     rows = []
 
     weather_choices = [
+
         "Calm Sea",
         "Normal",
         "Moderate",
         "Heavy Weather"
+
     ]
 
     probs = [
+
         0.20,
         0.45,
         0.25,
         0.10
+
     ]
 
     for i in range(n):
 
         weather = rng.choice(
+
             weather_choices,
+
             p=probs
+
         )
 
         wind = float(
+
             np.clip(
+
                 rng.normal(
+
                     12
                     if weather != "Calm Sea"
                     else 6,
+
                     3
+
                 ),
+
                 2,
                 30
+
             )
+
         )
 
         wave = float(
+
             np.clip(
+
                 rng.normal(
+
                     1.7
+
                     if weather
                     in [
                         "Moderate",
                         "Heavy Weather"
                     ]
+
                     else 0.9,
+
                     0.5
+
                 ),
+
                 0.2,
                 5.5
+
             )
+
         )
 
         current = float(
+
             np.clip(
+
                 rng.normal(
+
                     1.1,
                     0.4
+
                 ),
+
                 0.1,
                 3.0
+
             )
+
         )
 
         wind_dir = float(
+
             rng.integers(
                 0,
                 360
             )
+
         )
 
         current_dir = float(
+
             rng.integers(
                 0,
                 360
             )
+
         )
 
         rows.append({
@@ -844,17 +1126,25 @@ def alert_level(
 ):
 
     if (
+
         weather == "Storm"
+
         or wind >= 25
+
         or wave >= 4.5
+
     ):
 
         return "🔴 Severe"
 
     if (
+
         weather == "Heavy Weather"
+
         or wind >= 18
+
         or wave >= 3
+
     ):
 
         return "🟠 Caution"
@@ -877,60 +1167,81 @@ def optimize_single_segment(
     raw_speeds = [
 
         requested_speed - 2,
-
         requested_speed - 1,
-
         requested_speed,
-
         requested_speed + 1,
-
         requested_speed + 2
 
     ]
 
     candidate_speeds = sorted(
+
         set(
+
             round(
+
                 float(
+
                     np.clip(
                         s,
                         8,
                         25
                     )
+
                 ),
+
                 1
+
             )
+
             for s in raw_speeds
+
         )
+
     )
 
     best = None
 
-    best_score = float("inf")
+    best_score = float(
+        "inf"
+    )
 
     for fuel in available_fuels:
 
         for candidate_speed in candidate_speeds:
 
             consumption = predict_fuel(
+
                 capacity,
+
                 candidate_speed,
+
                 distance,
+
                 fuel,
+
                 weather,
+
                 wind,
+
                 wave,
+
                 current
+
             )
 
             cost = (
+
                 consumption
                 * fuel_data[fuel]["cost"]
+
             )
 
             co2 = calculate_co2(
+
                 consumption,
                 fuel
+
             )
 
             cargo_penalty = 0
@@ -938,22 +1249,31 @@ def optimize_single_segment(
             if cargo > capacity:
 
                 cargo_penalty = (
+
                     1_000_000
+
                     + (
+
                         cargo - capacity
-                    )
-                    * 1000
+
+                    ) * 1000
+
                 )
 
             score = (
+
                 cost * 0.55
+
                 + co2 * 12000 * 0.35
+
                 + abs(
                     candidate_speed - 17
                 )
                 * cost
                 * 0.03
+
                 + cargo_penalty
+
             )
 
             if score < best_score:
@@ -989,25 +1309,31 @@ def optimize_single_segment(
 # ============================================================
 
 st.markdown(
+
     '<div class="main-title">'
     '⚛️ Quantum Predictors'
     '</div>',
+
     unsafe_allow_html=True
+
 )
 
 st.markdown(
+
     '<div class="subtitle">'
     'Quantum-Inspired Fuel Consumption Prediction '
     '& Green Fleet Optimization'
     '<br>'
     'Dynamic Voyage Monitoring • Engineering Day Prototype'
     '</div>',
+
     unsafe_allow_html=True
+
 )
 
 
 # ============================================================
-# SIDEBAR - FLEET CONFIGURATION
+# SIDEBAR
 # ============================================================
 
 st.sidebar.title(
@@ -1015,62 +1341,98 @@ st.sidebar.title(
 )
 
 vessel_type = st.sidebar.selectbox(
+
     "Vessel Type",
+
     [
         "Container Ship",
         "Bulk Carrier",
         "Tanker",
         "Cargo Ship"
     ]
+
 )
 
 capacity = st.sidebar.number_input(
+
     "Vessel Capacity (tonnes)",
+
     min_value=1000,
+
     max_value=200000,
+
     value=50000,
+
     step=1000
+
 )
 
 speed = st.sidebar.number_input(
+
     "Current / Planned Speed (knots)",
+
     min_value=5.0,
+
     max_value=30.0,
+
     value=18.0,
+
     step=0.5
+
 )
 
 distance = st.sidebar.number_input(
+
     "Total Voyage Distance (km)",
+
     min_value=100,
+
     max_value=50000,
+
     value=2500,
+
     step=100
+
 )
 
 cargo = st.sidebar.number_input(
+
     "Cargo Demand (tonnes)",
+
     min_value=100,
+
     max_value=200000,
+
     value=40000,
+
     step=1000
+
 )
 
 fuel_type = st.sidebar.selectbox(
+
     "Current Fuel",
+
     list(fuel_data.keys())
+
 )
 
 available_fuels = st.sidebar.multiselect(
+
     "Available Fuels for This Vessel",
+
     list(fuel_data.keys()),
+
     default=[
+
         "Diesel",
         "LNG",
         "Methanol",
         "Hydrogen",
         "Ammonia"
+
     ]
+
 )
 
 if not available_fuels:
@@ -1084,15 +1446,23 @@ if not available_fuels:
     ]
 
 fuel_price = st.sidebar.number_input(
+
     "Current Fuel Price (₹ / tonne)",
+
     min_value=1000,
+
     max_value=200000,
+
     value=65000,
+
     step=1000
+
 )
 
 weather = st.sidebar.selectbox(
+
     "Current Operating Condition",
+
     [
         "Normal",
         "Calm Sea",
@@ -1100,35 +1470,48 @@ weather = st.sidebar.selectbox(
         "Heavy Weather",
         "Storm"
     ]
+
 )
 
 wind_speed_now = st.sidebar.number_input(
+
     "Current Wind Speed (knots)",
+
     0.0,
     40.0,
     10.0,
     1.0
+
 )
 
 wave_height_now = st.sidebar.number_input(
+
     "Current Wave Height (m)",
+
     0.1,
     8.0,
     1.2,
     0.1
+
 )
 
 current_speed_now = st.sidebar.number_input(
+
     "Current Speed (knots)",
+
     0.0,
     5.0,
     0.6,
     0.1
+
 )
 
 predict_button = st.sidebar.button(
+
     "🚀 Predict & Optimize",
+
     use_container_width=True
+
 )
 
 
@@ -1137,6 +1520,7 @@ predict_button = st.sidebar.button(
 # ============================================================
 
 initial_fuel = predict_fuel(
+
     capacity,
     speed,
     distance,
@@ -1145,27 +1529,37 @@ initial_fuel = predict_fuel(
     wind_speed_now,
     wave_height_now,
     current_speed_now
+
 )
 
 initial_cost = (
+
     initial_fuel
     * fuel_price
+
 )
 
 initial_co2 = calculate_co2(
+
     initial_fuel,
     fuel_type
+
 )
 
 green_score = (
+
     fuel_data[fuel_type]["green_score"]
+
 )
 
 st.markdown(
+
     '<div class="section-title">'
     '📊 Fleet Prediction Dashboard'
     '</div>',
+
     unsafe_allow_html=True
+
 )
 
 col1, col2, col3, col4 = st.columns(4)
@@ -1173,6 +1567,7 @@ col1, col2, col3, col4 = st.columns(4)
 with col1:
 
     st.markdown(
+
         f"""
         <div class="metric-card">
         <div class="metric-title">
@@ -1186,12 +1581,15 @@ with col1:
         </div>
         </div>
         """,
+
         unsafe_allow_html=True
+
     )
 
 with col2:
 
     st.markdown(
+
         f"""
         <div class="metric-card">
         <div class="metric-title">
@@ -1205,12 +1603,15 @@ with col2:
         </div>
         </div>
         """,
+
         unsafe_allow_html=True
+
     )
 
 with col3:
 
     st.markdown(
+
         f"""
         <div class="metric-card">
         <div class="metric-title">
@@ -1224,12 +1625,15 @@ with col3:
         </div>
         </div>
         """,
+
         unsafe_allow_html=True
+
     )
 
 with col4:
 
     st.markdown(
+
         f"""
         <div class="metric-card">
         <div class="metric-title">
@@ -1243,7 +1647,9 @@ with col4:
         </div>
         </div>
         """,
+
         unsafe_allow_html=True
+
     )
 
 
@@ -1252,10 +1658,13 @@ with col4:
 # ============================================================
 
 st.markdown(
+
     '<div class="section-title">'
     '🌊 Current Vessel Conditions'
     '</div>',
+
     unsafe_allow_html=True
+
 )
 
 cc1, cc2, cc3, cc4, cc5 = st.columns(5)
@@ -1281,12 +1690,17 @@ cc4.metric(
 )
 
 cc5.metric(
+
     "Alert",
+
     alert_level(
+
         weather,
         wind_speed_now,
         wave_height_now
+
     )
+
 )
 
 
@@ -1295,13 +1709,17 @@ cc5.metric(
 # ============================================================
 
 st.markdown(
+
     '<div class="section-title">'
     '🤖 Fuel Prediction'
     '</div>',
+
     unsafe_allow_html=True
+
 )
 
 st.markdown(
+
     f"""
     <div class="card">
 
@@ -1341,7 +1759,9 @@ st.markdown(
 
     </div>
     """,
+
     unsafe_allow_html=True
+
 )
 
 
@@ -1350,15 +1770,19 @@ st.markdown(
 # ============================================================
 
 st.markdown(
+
     '<div class="section-title">'
     '🌍 Green Fuel Comparison'
     '</div>',
+
     unsafe_allow_html=True
+
 )
 
 fuel_df = pd.DataFrame([
 
     {
+
         "Fuel": f,
 
         "Available":
@@ -1382,9 +1806,13 @@ fuel_df = pd.DataFrame([
 ])
 
 st.dataframe(
+
     fuel_df,
+
     use_container_width=True,
+
     hide_index=True
+
 )
 
 
@@ -1397,17 +1825,22 @@ if predict_button:
     if cargo > capacity:
 
         st.error(
+
             "Cargo demand is greater than vessel capacity. "
             "Please correct the input."
+
         )
 
     else:
 
         with st.spinner(
+
             "⚛️ Comparing fuel + speed combinations..."
+
         ):
 
             best_solution = optimize_single_segment(
+
                 capacity,
                 distance,
                 speed,
@@ -1417,6 +1850,7 @@ if predict_button:
                 wind_speed_now,
                 wave_height_now,
                 current_speed_now
+
             )
 
         optimized_fuel = (
@@ -1462,6 +1896,7 @@ if predict_button:
         ) * 100 if initial_co2 else 0
 
         save_prediction(
+
             vessel_type,
             capacity,
             speed,
@@ -1477,16 +1912,21 @@ if predict_button:
             fuel_saving,
             cost_saving,
             co2_reduction
+
         )
 
         st.markdown(
+
             '<div class="section-title">'
             '⚛️ Quantum-Inspired Optimization Result'
             '</div>',
+
             unsafe_allow_html=True
+
         )
 
         st.markdown(
+
             f"""
             <div class="success-box">
 
@@ -1536,7 +1976,9 @@ if predict_button:
 
             </div>
             """,
+
             unsafe_allow_html=True
+
         )
 
         s1, s2, s3 = st.columns(3)
@@ -1559,173 +2001,260 @@ if predict_button:
         comparison = pd.DataFrame({
 
             "Metric": [
+
                 "Fuel Consumption (t)",
                 "Fuel Cost (₹)",
                 "CO₂ Emissions (t)"
+
             ],
 
             "Current Plan": [
+
                 initial_fuel,
                 initial_cost,
                 initial_co2
+
             ],
 
             "Optimized Plan": [
+
                 optimized_fuel,
                 optimized_cost,
                 optimized_co2
+
             ]
 
         })
 
         st.dataframe(
+
             comparison,
+
             use_container_width=True,
+
             hide_index=True
+
         )
 
-        st.markdown(
-            '<div class="section-title">'
-            '📈 Fuel Consumption Comparison'
-            '</div>',
-            unsafe_allow_html=True
-        )
 
-        chart_fuels = available_fuels
+        # ====================================================
+        # CALCULATE GRAPH DATA
+        # ====================================================
+
+        chart_fuels = list(
+            available_fuels
+        )
 
         values = [
 
             predict_fuel(
+
                 capacity,
+
                 best_solution["speed"],
+
                 distance,
-                f,
+
+                fuel,
+
                 weather,
+
                 wind_speed_now,
+
                 wave_height_now,
+
                 current_speed_now
+
             )
 
-            for f in chart_fuels
+            for fuel in chart_fuels
 
         ]
-
-        fig, ax = plt.subplots(
-            figsize=(10, 4)
-        )
-
-        ax.bar(
-            chart_fuels,
-            values
-        )
-
-        ax.set_ylabel(
-            "Fuel Consumption (tonnes)"
-        )
-
-        ax.set_title(
-            "Available Fuel Consumption Comparison"
-        )
-
-        ax.tick_params(
-            axis="x",
-            rotation=20
-        )
-
-        st.pyplot(fig)
-
-        plt.close(fig)
-
-        st.markdown(
-            '<div class="section-title">'
-            '🌱 CO₂ Comparison'
-            '</div>',
-            unsafe_allow_html=True
-        )
 
         emissions = [
 
             calculate_co2(
-                v,
-                f
+
+                value,
+
+                fuel
+
             )
 
-            for f, v in zip(
+            for fuel, value in zip(
+
                 chart_fuels,
                 values
+
             )
 
         ]
 
-        fig2, ax2 = plt.subplots(
-            figsize=(10, 4)
+
+        # ====================================================
+        # GRAPHS ON RIGHT SIDE
+        # ====================================================
+
+        graph_left, graph_right = st.columns(
+
+            [1, 1.7]
+
         )
 
-        ax2.bar(
-            chart_fuels,
-            emissions
-        )
 
-        ax2.set_ylabel(
-            "CO₂ Emissions (tonnes)"
-        )
+        # ----------------------------------------------------
+        # LEFT SIDE - DECISION
+        # ----------------------------------------------------
 
-        ax2.set_title(
-            "Available Fuel CO₂ Comparison"
-        )
+        with graph_left:
 
-        ax2.tick_params(
-            axis="x",
-            rotation=20
-        )
+            st.markdown(
 
-        st.pyplot(fig2)
+                '<div class="section-title">'
+                '💡 Decision Explanation'
+                '</div>',
 
-        plt.close(fig2)
+                unsafe_allow_html=True
 
-        st.markdown(
-            '<div class="section-title">'
-            '💡 Decision Explanation'
-            '</div>',
-            unsafe_allow_html=True
-        )
+            )
 
-        st.markdown(
-            f"""
-            <div class="card">
+            st.markdown(
 
-            The optimizer did not automatically assume
-            one fuel is always best.
+                f"""
+                <div class="card">
 
-            <br><br>
+                The optimizer compared only the fuels
+                available to this vessel.
 
-            It compared only the fuels physically available
-            to this vessel and tested several nearby
-            operating speeds.
+                <br><br>
 
-            <br><br>
+                It tested several nearby operating speeds
+                and evaluated fuel cost, CO₂ emissions
+                and speed penalty.
 
-            <b>Selected:</b>
-            {best_solution['fuel']}
-            at
-            {best_solution['speed']:.1f} knots
+                <br><br>
 
-            <br><br>
+                <b>Selected Fuel:</b><br>
+                {best_solution['fuel']}
 
-            <b>Reason:</b>
-            lowest combined prototype score using fuel cost,
-            CO₂ emissions and speed penalty.
+                <br><br>
 
-            <br><br>
+                <b>Selected Speed:</b><br>
+                {best_solution['speed']:.1f} knots
 
-            <b>Important:</b>
-            this is a quantum-inspired classical prototype,
-            not a physical quantum computer.
+                <br><br>
 
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+                <b>Fuel Consumption:</b><br>
+                {optimized_fuel:.2f} tonnes
+
+                <br><br>
+
+                <b>CO₂:</b><br>
+                {optimized_co2:.2f} tonnes
+
+                <br><br>
+
+                <b>Available Fuels:</b><br>
+                {', '.join(chart_fuels)}
+
+                <br><br>
+
+                The percentage shown on the graph represents
+                the fuel's share of the total consumption
+                among the selected fuels.
+
+                <br><br>
+
+                <b>Note:</b>
+                This is a quantum-inspired classical prototype,
+                not a physical quantum computer.
+
+                </div>
+                """,
+
+                unsafe_allow_html=True
+
+            )
+
+
+        # ----------------------------------------------------
+        # RIGHT SIDE - FUEL GRAPH
+        # ----------------------------------------------------
+
+        with graph_right:
+
+            st.markdown(
+
+                '<div class="section-title">'
+                '📈 3D Fuel Consumption Comparison'
+                '</div>',
+
+                unsafe_allow_html=True
+
+            )
+
+            fuel_fig = create_3d_bar_chart(
+
+                chart_fuels,
+
+                values,
+
+                "Available Fuel Consumption",
+
+                "Fuel (tonnes)"
+
+            )
+
+            st.pyplot(
+
+                fuel_fig,
+
+                use_container_width=True
+
+            )
+
+            plt.close(
+                fuel_fig
+            )
+
+
+            # ------------------------------------------------
+            # CO2 GRAPH
+            # ------------------------------------------------
+
+            st.markdown(
+
+                '<div class="section-title">'
+                '🌱 3D CO₂ Comparison'
+                '</div>',
+
+                unsafe_allow_html=True
+
+            )
+
+            co2_fig = create_3d_bar_chart(
+
+                chart_fuels,
+
+                emissions,
+
+                "Available Fuel CO₂ Comparison",
+
+                "CO₂ (tonnes)"
+
+            )
+
+            st.pyplot(
+
+                co2_fig,
+
+                use_container_width=True
+
+            )
+
+            plt.close(
+                co2_fig
+            )
 
 
 # ============================================================
@@ -1733,13 +2262,17 @@ if predict_button:
 # ============================================================
 
 st.markdown(
+
     '<div class="section-title">'
     '🧭 Dynamic Voyage Optimization'
     '</div>',
+
     unsafe_allow_html=True
+
 )
 
 st.markdown(
+
     """
     <div class="card">
 
@@ -1751,7 +2284,9 @@ st.markdown(
 
     </div>
     """,
+
     unsafe_allow_html=True
+
 )
 
 
@@ -1766,19 +2301,20 @@ st.markdown(
 v1, v2, v3 = st.columns(3)
 
 
-# ------------------------------------------------------------
-# START PORT
-# ------------------------------------------------------------
-
 with v1:
 
     start_port = st.selectbox(
+
         "Start Port",
+
         PORT_NAMES,
+
         index=PORT_NAMES.index(
             "Chennai, India"
         ),
+
         key="start_port_select"
+
     )
 
     start_lat, start_lon = WORLD_PORTS[
@@ -1786,24 +2322,27 @@ with v1:
     ]
 
     st.caption(
+
         f"📍 {start_lat:.4f}, "
         f"{start_lon:.4f}"
+
     )
 
-
-# ------------------------------------------------------------
-# DESTINATION PORT
-# ------------------------------------------------------------
 
 with v2:
 
     end_port = st.selectbox(
+
         "Destination Port",
+
         PORT_NAMES,
+
         index=PORT_NAMES.index(
             "Mumbai, India"
         ),
+
         key="destination_port_select"
+
     )
 
     end_lat, end_lon = WORLD_PORTS[
@@ -1811,39 +2350,46 @@ with v2:
     ]
 
     st.caption(
+
         f"📍 {end_lat:.4f}, "
         f"{end_lon:.4f}"
+
     )
 
-
-# ------------------------------------------------------------
-# SEGMENTS
-# ------------------------------------------------------------
 
 with v3:
 
     segments = st.number_input(
+
         "Number of Voyage Segments",
+
         2,
         30,
         6,
         1
+
     )
 
     segment_mode = st.selectbox(
+
         "Condition Mode",
+
         [
             "Dynamic Simulation",
             "Manual Conditions"
         ]
+
     )
 
     route_seed = st.number_input(
+
         "Simulation Seed",
+
         1,
         99999,
         42,
         1
+
     )
 
 
@@ -1852,22 +2398,28 @@ with v3:
 # ============================================================
 
 route_distance = haversine_km(
+
     start_lat,
     start_lon,
     end_lat,
     end_lon
+
 )
 
 segment_distance = (
+
     route_distance
     / segments
+
 )
 
 st.info(
+
     f"🛳️ Estimated route distance: "
     f"{route_distance:,.0f} km • "
     f"{segments} segments • "
     f"about {segment_distance:,.0f} km per segment"
+
 )
 
 
@@ -1892,7 +2444,9 @@ if segment_mode == "Manual Conditions":
         with a:
 
             mw = st.selectbox(
+
                 f"S{i+1} Weather",
+
                 [
                     "Calm Sea",
                     "Normal",
@@ -1900,64 +2454,71 @@ if segment_mode == "Manual Conditions":
                     "Heavy Weather",
                     "Storm"
                 ],
+
                 key=f"mw_{i}"
+
             )
 
         with b:
 
             mwind = st.number_input(
+
                 f"S{i+1} Wind (kn)",
+
                 0.0,
                 40.0,
                 10.0,
                 1.0,
+
                 key=f"mwind_{i}"
+
             )
 
         with c:
 
             mwave = st.number_input(
+
                 f"S{i+1} Wave (m)",
+
                 0.1,
                 8.0,
                 1.2,
                 0.1,
+
                 key=f"mwave_{i}"
+
             )
 
         with d:
 
             mcurrent = st.number_input(
+
                 f"S{i+1} Current (kn)",
+
                 0.0,
                 5.0,
                 0.6,
                 0.1,
+
                 key=f"mcur_{i}"
+
             )
 
         manual_conditions.append({
 
-            "segment":
-                i + 1,
+            "segment": i + 1,
 
-            "weather":
-                mw,
+            "weather": mw,
 
-            "wind_speed":
-                mwind,
+            "wind_speed": mwind,
 
-            "wind_direction":
-                0.0,
+            "wind_direction": 0.0,
 
-            "wave_height":
-                mwave,
+            "wave_height": mwave,
 
-            "current_speed":
-                mcurrent,
+            "current_speed": mcurrent,
 
-            "current_direction":
-                0.0
+            "current_direction": 0.0
 
         })
 
@@ -1967,8 +2528,11 @@ if segment_mode == "Manual Conditions":
 # ============================================================
 
 run_voyage = st.button(
+
     "🧭 Run Dynamic Voyage Optimization",
+
     use_container_width=True
+
 )
 
 
@@ -1982,8 +2546,11 @@ if run_voyage:
         == "Manual Conditions"
 
         else generate_segment_conditions(
+
             int(segments),
+
             seed=int(route_seed)
+
         )
 
     )
@@ -2003,23 +2570,35 @@ if run_voyage:
     for cond in conditions:
 
         best = optimize_single_segment(
+
             capacity,
+
             segment_distance,
+
             speed,
+
             cargo,
+
             available_fuels,
+
             cond["weather"],
+
             cond["wind_speed"],
+
             cond["wave_height"],
+
             cond["current_speed"]
+
         )
 
         hours = (
+
             segment_distance
             / (
                 best["speed"]
                 * 1.852
             )
+
         )
 
         total_hours += hours
@@ -2037,9 +2616,11 @@ if run_voyage:
         )
 
         alert = alert_level(
+
             cond["weather"],
             cond["wind_speed"],
             cond["wave_height"]
+
         )
 
         segment_display.append({
@@ -2207,47 +2788,44 @@ if st.session_state.get(
     False
 ):
 
-    total_fuel = (
-        st.session_state[
-            "voyage_total_fuel"
-        ]
-    )
+    total_fuel = st.session_state[
+        "voyage_total_fuel"
+    ]
 
-    total_cost = (
-        st.session_state[
-            "voyage_total_cost"
-        ]
-    )
+    total_cost = st.session_state[
+        "voyage_total_cost"
+    ]
 
-    total_co2 = (
-        st.session_state[
-            "voyage_total_co2"
-        ]
-    )
+    total_co2 = st.session_state[
+        "voyage_total_co2"
+    ]
 
-    total_hours = (
-        st.session_state[
-            "voyage_hours"
-        ]
-    )
+    total_hours = st.session_state[
+        "voyage_hours"
+    ]
 
-    voyage_df = (
-        st.session_state[
-            "voyage_segments_df"
-        ]
-    )
+    voyage_df = st.session_state[
+        "voyage_segments_df"
+    ]
 
     st.markdown(
+
         '<div class="section-title">'
         '📋 Segment-by-Segment Voyage Plan'
         '</div>',
+
         unsafe_allow_html=True
+
     )
 
     st.dataframe(
+
         voyage_df,
+
         use_container_width=True,
+
         hide_index=True
+
     )
 
     t1, t2, t3, t4 = st.columns(4)
@@ -2273,10 +2851,13 @@ if st.session_state.get(
     )
 
     st.markdown(
+
         '<div class="section-title">'
         '🌦️ Changing Weather Across Voyage'
         '</div>',
+
         unsafe_allow_html=True
+
     )
 
     fig3, ax3 = plt.subplots(
@@ -2284,17 +2865,27 @@ if st.session_state.get(
     )
 
     ax3.plot(
+
         voyage_df["Segment"],
+
         voyage_df["Wave (m)"],
+
         marker="o",
+
         label="Wave height"
+
     )
 
     ax3.plot(
+
         voyage_df["Segment"],
+
         voyage_df["Wind (kn)"],
+
         marker="o",
+
         label="Wind speed"
+
     )
 
     ax3.set_xlabel(
@@ -2321,13 +2912,17 @@ if st.session_state.get(
 # ============================================================
 
 st.markdown(
+
     '<div class="section-title">'
     '📡 Live Voyage Monitoring'
     '</div>',
+
     unsafe_allow_html=True
+
 )
 
 st.markdown(
+
     """
     <div class="card">
 
@@ -2343,7 +2938,9 @@ st.markdown(
 
     </div>
     """,
+
     unsafe_allow_html=True
+
 )
 
 
@@ -2360,8 +2957,11 @@ track_col1, track_col2, track_col3 = st.columns(3)
 with track_col1:
 
     if st.button(
+
         "▶️ Next Live Update",
+
         use_container_width=True
+
     ):
 
         st.session_state[
@@ -2380,8 +2980,11 @@ with track_col1:
 with track_col2:
 
     if st.button(
+
         "🔄 Reset Tracking",
+
         use_container_width=True
+
     ):
 
         st.session_state[
@@ -2398,12 +3001,15 @@ with track_col3:
         "Tracking Segment",
 
         0,
+
         int(segments),
 
         int(
+
             st.session_state[
                 "track_step"
             ]
+
         ),
 
         1
@@ -2412,17 +3018,21 @@ with track_col3:
 
 
 step = int(
+
     st.session_state[
         "track_step"
     ]
+
 )
 
 progress = (
+
     step
     / max(
         1,
         int(segments)
     )
+
 )
 
 
@@ -2444,19 +3054,18 @@ if st.session_state.get(
     False
 ):
 
-    conditions = (
-        st.session_state[
-            "voyage_conditions"
-        ]
-    )
+    conditions = st.session_state[
+        "voyage_conditions"
+    ]
 
 else:
 
-    conditions = (
-        generate_segment_conditions(
-            int(segments),
-            seed=int(route_seed)
-        )
+    conditions = generate_segment_conditions(
+
+        int(segments),
+
+        seed=int(route_seed)
+
     )
 
 
@@ -2530,13 +3139,13 @@ else:
 
     )
 
-    active_fuel = (
-        live_best["fuel"]
-    )
+    active_fuel = live_best[
+        "fuel"
+    ]
 
-    active_speed = (
-        live_best["speed"]
-    )
+    active_speed = live_best[
+        "speed"
+    ]
 
 
 live_fuel_rate = predict_fuel(
@@ -2568,6 +3177,7 @@ live_co2 = calculate_co2(
     live_fuel_rate,
 
     active_fuel
+
 )
 
 
@@ -2585,60 +3195,91 @@ live_alert = alert_level(
 lm1, lm2, lm3, lm4, lm5, lm6 = st.columns(6)
 
 lm1.metric(
+
     "GPS Latitude",
+
     f"{cur_lat:.4f}°"
+
 )
 
 lm2.metric(
+
     "GPS Longitude",
+
     f"{cur_lon:.4f}°"
+
 )
 
 lm3.metric(
+
     "Progress",
+
     f"{progress*100:.1f}%"
+
 )
 
 lm4.metric(
+
     "Live Speed",
+
     f"{active_speed:.1f} kn"
+
 )
 
 lm5.metric(
+
     "Live Fuel",
+
     active_fuel
+
 )
 
 lm6.metric(
+
     "Alert",
+
     live_alert
+
 )
 
 
 lm7, lm8, lm9, lm10 = st.columns(4)
 
 lm7.metric(
+
     "Weather",
+
     active_weather
+
 )
 
 lm8.metric(
+
     "Wind",
+
     f"{active_wind:.1f} kn"
+
 )
 
 lm9.metric(
+
     "Wave",
+
     f"{active_wave:.1f} m"
+
 )
 
 lm10.metric(
+
     "Current",
+
     f"{active_current:.1f} kn"
+
 )
 
 
 st.markdown(
+
     f"""
     <div class="card">
 
@@ -2678,7 +3319,9 @@ st.markdown(
 
     </div>
     """,
+
     unsafe_allow_html=True
+
 )
 
 
@@ -2687,50 +3330,58 @@ st.markdown(
 # ============================================================
 
 st.markdown(
+
     '<div class="section-title">'
     '🗺️ Live Worldwide Voyage Map'
     '</div>',
+
     unsafe_allow_html=True
+
 )
 
 
-# Route line data
 route_points = pd.DataFrame({
 
     "latitude": np.linspace(
+
         start_lat,
         end_lat,
         50
+
     ),
 
     "longitude": np.linspace(
+
         start_lon,
         end_lon,
         50
+
     )
 
 })
 
 
-# Map points
 map_data = pd.DataFrame({
 
     "latitude": [
+
         start_lat,
         cur_lat,
         end_lat
+
     ],
 
     "longitude": [
+
         start_lon,
         cur_lon,
         end_lon
+
     ]
 
 })
 
 
-# Use PyDeck for an actual route line.
 try:
 
     import pydeck as pdk
@@ -2740,13 +3391,16 @@ try:
         "PathLayer",
 
         data=[{
+
             "path":
+
                 route_points[
                     [
                         "longitude",
                         "latitude"
                     ]
                 ].values.tolist()
+
         }],
 
         get_path="path",
@@ -2754,9 +3408,11 @@ try:
         get_width=5,
 
         get_color=[
+
             72,
             224,
             160
+
         ],
 
         pickable=False
@@ -2771,16 +3427,20 @@ try:
         data=map_data,
 
         get_position=[
+
             "longitude",
             "latitude"
+
         ],
 
         get_radius=70000,
 
         get_fill_color=[
+
             255,
             80,
             80
+
         ],
 
         pickable=True
@@ -2791,13 +3451,17 @@ try:
     view_state = pdk.ViewState(
 
         latitude=(
+
             start_lat
             + end_lat
+
         ) / 2,
 
         longitude=(
+
             start_lon
             + end_lon
+
         ) / 2,
 
         zoom=2.5
@@ -2808,39 +3472,52 @@ try:
     deck = pdk.Deck(
 
         layers=[
+
             route_layer,
             point_layer
+
         ],
 
         initial_view_state=view_state,
 
         tooltip={
+
             "text":
             "Latitude: {latitude}\n"
             "Longitude: {longitude}"
+
         }
 
     )
 
 
     st.pydeck_chart(
+
         deck,
+
         use_container_width=True
+
     )
 
 except Exception:
 
-    # Fallback if PyDeck is unavailable
     st.map(
+
         map_data,
+
         latitude="latitude",
+
         longitude="longitude",
+
         zoom=2,
+
         use_container_width=True
+
     )
 
 
 st.markdown(
+
     f"""
     <div class="card">
 
@@ -2866,7 +3543,9 @@ st.markdown(
 
     </div>
     """,
+
     unsafe_allow_html=True
+
 )
 
 
@@ -2877,25 +3556,31 @@ st.markdown(
 if live_alert == "🔴 Severe":
 
     st.error(
+
         "⚠️ Severe conditions detected. "
         "In a real deployment, an approved navigation/"
         "weather system should be consulted and operating "
         "decisions should be made by qualified personnel."
+
     )
 
 elif live_alert == "🟠 Caution":
 
     st.warning(
+
         "⚠️ Caution: environmental resistance is elevated. "
         "The optimizer can recalculate the local "
         "fuel/speed plan."
+
     )
 
 else:
 
     st.success(
+
         "✅ Conditions are within the prototype's "
         "normal monitoring range."
+
     )
 
 
@@ -2904,10 +3589,13 @@ else:
 # ============================================================
 
 st.markdown(
+
     '<div class="section-title">'
     '🔬 How the Integrated System Works'
     '</div>',
+
     unsafe_allow_html=True
+
 )
 
 c1, c2, c3 = st.columns(3)
@@ -2916,6 +3604,7 @@ c1, c2, c3 = st.columns(3)
 with c1:
 
     st.markdown(
+
         """
         <div class="card">
 
@@ -2927,13 +3616,16 @@ with c1:
 
         </div>
         """,
+
         unsafe_allow_html=True
+
     )
 
 
 with c2:
 
     st.markdown(
+
         """
         <div class="card">
 
@@ -2945,13 +3637,16 @@ with c2:
 
         </div>
         """,
+
         unsafe_allow_html=True
+
     )
 
 
 with c3:
 
     st.markdown(
+
         """
         <div class="card">
 
@@ -2963,7 +3658,9 @@ with c3:
 
         </div>
         """,
+
         unsafe_allow_html=True
+
     )
 
 
@@ -2972,10 +3669,13 @@ with c3:
 # ============================================================
 
 st.markdown(
+
     '<div class="section-title">'
     '🗄️ Prediction History'
     '</div>',
+
     unsafe_allow_html=True
+
 )
 
 history_df = load_prediction_history()
@@ -2990,9 +3690,13 @@ if not history_df.empty:
     with hc2:
 
         if st.button(
+
             "🗑️ Clear History",
+
             use_container_width=True,
+
             key="clear_prediction_history"
+
         ):
 
             clear_prediction_history()
@@ -3000,16 +3704,22 @@ if not history_df.empty:
             st.rerun()
 
     st.dataframe(
+
         history_df,
+
         use_container_width=True,
+
         hide_index=True
+
     )
 
 else:
 
     st.info(
+
         "No prediction history yet. "
         "Click Predict & Optimize to save a result."
+
     )
 
 
@@ -3018,10 +3728,13 @@ else:
 # ============================================================
 
 st.markdown(
+
     '<div class="section-title">'
     '🧭 Voyage Segment History'
     '</div>',
+
     unsafe_allow_html=True
+
 )
 
 segment_history = load_segment_history()
@@ -3036,14 +3749,17 @@ if not segment_history.empty:
     with sh2:
 
         if st.button(
+
             "🗑️ Clear Voyage History",
+
             use_container_width=True,
+
             key="clear_voyage_history"
+
         ):
 
             clear_voyage_segment_history()
 
-            # Clear currently displayed voyage
             st.session_state[
                 "voyage_done"
             ] = False
@@ -3057,13 +3773,19 @@ if not segment_history.empty:
             st.rerun()
 
     st.dataframe(
+
         segment_history,
+
         use_container_width=True,
+
         hide_index=True
+
     )
 
 else:
 
     st.info(
+
         "No dynamic voyage results saved yet."
+
     )
