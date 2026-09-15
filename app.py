@@ -821,6 +821,21 @@ FUEL_COLORS = {
 
 }
 
+# Distinct colors used when a graph contains voyage segments
+# (S1, S2, S3, ...) rather than fuel names.
+SEGMENT_COLORS = [
+    "#3B82F6",  # blue
+    "#EF4444",  # red
+    "#22C55E",  # green
+    "#F59E0B",  # amber
+    "#A855F7",  # purple
+    "#06B6D4",  # cyan
+    "#EC4899",  # pink
+    "#84CC16",  # lime
+    "#F97316",  # orange
+    "#6366F1"   # indigo
+]
+
 
 weather_factor_map = {
 
@@ -898,16 +913,20 @@ def create_3d_bar_chart(
 
     dz = values
 
-    colors = [
+    colors = []
 
-        FUEL_COLORS.get(
-            fuel,
-            "#48e0a0"
-        )
+    for index, fuel in enumerate(fuels):
 
-        for fuel in fuels
+        # Fuel comparison graphs keep the fixed fuel-specific colors.
+        if fuel in FUEL_COLORS:
+            colors.append(FUEL_COLORS[fuel])
 
-    ]
+        # Voyage segment graphs use a different color for each segment
+        # so S1, S2, S3, ... are visually easy to distinguish.
+        else:
+            colors.append(
+                SEGMENT_COLORS[index % len(SEGMENT_COLORS)]
+            )
 
     ax.bar3d(
 
