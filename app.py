@@ -262,9 +262,14 @@ def init_database():
             total_co2 REAL,
             total_hours REAL,
             conditions_json TEXT,
-            segment_display_json TEXT
+            segment_display_json TEXT,
+            sensor_timeline_json TEXT,
+            fuel_plan_json TEXT
         )
     """)
+
+    _ensure_column(cur, "voyage_reports", "sensor_timeline_json", "TEXT")
+    _ensure_column(cur, "voyage_reports", "fuel_plan_json", "TEXT")
 
     conn.commit()
     conn.close()
@@ -491,82 +496,27 @@ def load_segment_history(limit=50):
 
 
 def save_voyage_report(
-    created_at,
-    start_port,
-    end_port,
-    start_lat,
-    start_lon,
-    end_lat,
-    end_lon,
-    route_distance,
-    segments,
-    segment_mode,
-    route_seed,
-    vessel_type,
-    capacity,
-    speed,
-    cargo,
-    current_fuel,
-    available_fuels,
-    total_fuel,
-    total_cost,
-    total_co2,
-    total_hours,
-    conditions,
-    segment_display
+    created_at, start_port, end_port, start_lat, start_lon, end_lat, end_lon,
+    route_distance, segments, segment_mode, route_seed, vessel_type, capacity,
+    speed, cargo, current_fuel, available_fuels, total_fuel, total_cost,
+    total_co2, total_hours, conditions, segment_display, sensor_timeline=None, fuel_plan=None
 ):
     conn = sqlite3.connect(DB_NAME)
     conn.execute("""
         INSERT INTO voyage_reports (
-            created_at,
-            start_port,
-            end_port,
-            start_lat,
-            start_lon,
-            end_lat,
-            end_lon,
-            route_distance,
-            segments,
-            segment_mode,
-            route_seed,
-            vessel_type,
-            capacity,
-            speed,
-            cargo,
-            current_fuel,
-            available_fuels_json,
-            total_fuel,
-            total_cost,
-            total_co2,
-            total_hours,
-            conditions_json,
-            segment_display_json
+            created_at, start_port, end_port, start_lat, start_lon, end_lat, end_lon,
+            route_distance, segments, segment_mode, route_seed, vessel_type, capacity,
+            speed, cargo, current_fuel, available_fuels_json, total_fuel, total_cost,
+            total_co2, total_hours, conditions_json, segment_display_json,
+            sensor_timeline_json, fuel_plan_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        created_at,
-        start_port,
-        end_port,
-        start_lat,
-        start_lon,
-        end_lat,
-        end_lon,
-        route_distance,
-        int(segments),
-        segment_mode,
-        int(route_seed),
-        vessel_type,
-        capacity,
-        speed,
-        cargo,
-        current_fuel,
-        json.dumps(list(available_fuels)),
-        total_fuel,
-        total_cost,
-        total_co2,
-        total_hours,
-        json.dumps(conditions),
-        json.dumps(segment_display),
+        created_at, start_port, end_port, start_lat, start_lon, end_lat, end_lon,
+        route_distance, int(segments), segment_mode, int(route_seed), vessel_type, capacity,
+        speed, cargo, current_fuel, json.dumps(list(available_fuels)), total_fuel,
+        total_cost, total_co2, total_hours, json.dumps(conditions),
+        json.dumps(segment_display), json.dumps(sensor_timeline or []), json.dumps(fuel_plan or {})
     ))
     conn.commit()
     conn.close()
@@ -612,6 +562,96 @@ def clear_voyage_segment_history():
     conn.execute("DELETE FROM voyage_reports")
     conn.commit()
     conn.close()
+
+
+# ============================================================
+# PREDICTED SENSOR + SHIP HEALTH ENGINE
+# ============================================================
+
+WEATHER_SEVERITY = {
+    "Calm Sea": 0.0, "Normal": 0.20, "Moderate": 0.45,
+    "Heavy Weather": 0.75, "Storm": 1.00,
+}
+
+def predict_ship_sensors(segment_no, speed_knots, fuel_name, weather_name, wind_knots, wave_m, current_knots, fuel_remaining_pct=100.0):
+    """Generate deterministic prototype sensor readings from voyage conditions."""
+    severity = WEATHER_SEVERITY.get(weather_name, 0.25)
+    speed_load = max(0.0, (float(speed_knots) - 12.0) / 12.0)
+    wave_load = max(0.0, float(wave_m) - 1.5) / 4.0
+    wind_load = max(0.0, float(wind_knots) - 15.0) / 30.0
+    current_load = max(0.0, float(current_knots) - 0.8) / 3.0
+    fuel_heat_factor = {"Diesel": 1.00, "Petrol": 1.04, "LNG": 0.94, "Methanol": 0.98, "Hydrogen": 0.90, "Ammonia": 0.93}.get(str(fuel_name).strip(), 1.0)
+    load = max(0.0, 0.55 + speed_load * 0.35 + severity * 0.45 + wave_load * 0.18 + wind_load * 0.10 + current_load * 0.08)
+    engine_temp = 68.0 + 34.0 * load * fuel_heat_factor
+    coolant_temp = 62.0 + 25.0 * load
+    fuel_temp = 32.0 + 12.0 * load + severity * 5.0
+    rpm = 1050.0 + float(speed_knots) * 42.0 + severity * 170.0
+    vibration = 1.3 + float(speed_knots) * 0.075 + wave_load * 2.2 + severity * 2.6
+    oil_pressure = 5.4 - max(0.0, load - 0.95) * 1.8 - max(0.0, vibration - 3.0) * 0.12
+    voltage = 24.6 - max(0.0, load - 0.9) * 1.7
+    exhaust_temp = 285.0 + 220.0 * load + severity * 70.0
+    leak_score = 0.0
+    if vibration > 4.8: leak_score += 0.35
+    if wave_m > 4.5: leak_score += 0.25
+    if engine_temp > 108: leak_score += 0.25
+    return {
+        "segment": int(segment_no), "engine_temperature_c": round(engine_temp, 1),
+        "coolant_temperature_c": round(coolant_temp, 1), "fuel_temperature_c": round(fuel_temp, 1),
+        "engine_rpm": round(rpm, 0), "vibration_mm_s": round(vibration, 2),
+        "oil_pressure_bar": round(max(oil_pressure, 2.5), 2), "voltage_v": round(max(voltage, 21.5), 2),
+        "exhaust_temperature_c": round(exhaust_temp, 0), "leakage_probability": round(min(1.0, leak_score) * 100.0, 1),
+        "fuel_remaining_pct": round(max(0.0, float(fuel_remaining_pct)), 1), "load_index": round(load * 100.0, 1),
+    }
+
+def analyze_ship_condition(sensor, weather_name, wind_knots, wave_m, speed_knots, fuel_name, fuel_margin_t):
+    reasons, actions, critical, warning = [], [], [], []
+    temp, vib, oil, exhaust, leakage = (sensor["engine_temperature_c"], sensor["vibration_mm_s"], sensor["oil_pressure_bar"], sensor["exhaust_temperature_c"], sensor["leakage_probability"])
+    if temp >= 115: critical.append("Engine temperature is critically high")
+    elif temp >= 100: warning.append("Engine temperature is above the normal prototype range")
+    if vib >= 6.0: critical.append("Engine vibration is critically high")
+    elif vib >= 4.5: warning.append("Engine vibration is elevated")
+    if oil < 3.5: critical.append("Oil pressure is critically low")
+    elif oil < 4.2: warning.append("Oil pressure is below the preferred prototype range")
+    if exhaust >= 560: critical.append("Exhaust temperature is critically high")
+    elif exhaust >= 500: warning.append("Exhaust temperature is high")
+    if leakage >= 70: critical.append("Possible leakage condition detected")
+    elif leakage >= 40: warning.append("Leakage risk is elevated")
+    if speed_knots >= 20 and (wave_m >= 3.5 or wind_knots >= 30):
+        reasons.append("High vessel speed is increasing engine load in rough conditions")
+        actions.append("Reduce speed to lower engine load and fuel consumption")
+    if wave_m >= 3.5:
+        reasons.append("High waves increase vessel resistance")
+        actions.append("Operate at a safer/reduced speed for the current sea state")
+    if wind_knots >= 30: reasons.append("Strong wind is increasing resistance and power demand")
+    if weather_name in ("Heavy Weather", "Storm"): reasons.append(f"{weather_name} is increasing the modeled operating load")
+    if temp >= 100 and (speed_knots >= 18 or wave_m >= 3.5): reasons.append("Engine heat is consistent with increased load from speed/weather")
+    if fuel_margin_t < 0:
+        critical.append("Projected remaining fuel is below the modeled requirement")
+        actions.append("Reduce consumption and identify a suitable refueling option if available")
+    elif fuel_margin_t < 0.10:
+        warning.append("Fuel reserve margin is becoming small")
+        actions.append("Monitor fuel burn closely and recalculate the remaining voyage")
+    if critical: status, primary = "🔴 CRITICAL", (actions[0] if actions else "Move to a safe operating condition and inspect the affected system")
+    elif warning: status, primary = "🟠 HIGH RISK", (actions[0] if actions else "Reduce load/speed and continue close monitoring")
+    elif reasons: status, primary = "🟡 WARNING", (actions[0] if actions else "Continue with increased monitoring")
+    else: status, primary = "🟢 NORMAL", "Continue planned operation and monitor conditions"
+    if not reasons and status != "🟢 NORMAL": reasons.append("One or more monitored values crossed the prototype alert threshold")
+    return {"status": status, "reasons": list(dict.fromkeys(reasons)), "alerts": list(dict.fromkeys(critical + warning)), "actions": list(dict.fromkeys(actions)), "primary_action": primary, "fuel_name": fuel_name}
+
+def build_sensor_timeline(conditions, segment_fuels, segment_speeds, segment_consumptions, recommended_start_fuel_t):
+    rows, remaining = [], float(recommended_start_fuel_t)
+    for idx, cond in enumerate(conditions):
+        consumption = float(segment_consumptions[idx]); remaining = max(0.0, remaining - consumption)
+        pct = (remaining / recommended_start_fuel_t * 100.0) if recommended_start_fuel_t > 0 else 0.0
+        sensor = predict_ship_sensors(int(cond["segment"]), segment_speeds[idx], segment_fuels[idx], cond["weather"], cond["wind_speed"], cond["wave_height"], cond["current_speed"], pct)
+        rows.append({**sensor, "weather": cond["weather"], "wind_knots": round(float(cond["wind_speed"]), 1), "wave_m": round(float(cond["wave_height"]), 1), "current_knots": round(float(cond["current_speed"]), 1), "fuel": segment_fuels[idx], "speed_knots": round(float(segment_speeds[idx]), 1), "fuel_consumption_t": round(consumption, 2), "fuel_remaining_t": round(remaining, 2)})
+    return rows
+
+def calculate_fuel_plan(total_fuel_t, conditions, capacity_t):
+    severities = [WEATHER_SEVERITY.get(c.get("weather"), 0.25) for c in conditions]; max_severity = max(severities) if severities else 0.0
+    weather_reserve_pct = 0.08 + max_severity * 0.12; operational_reserve_pct = 0.07
+    reserve_pct = min(0.30, weather_reserve_pct + operational_reserve_pct); reserve_t = float(total_fuel_t) * reserve_pct
+    return {"base_requirement_t": round(float(total_fuel_t), 2), "weather_reserve_pct": round(weather_reserve_pct * 100.0, 1), "operational_reserve_pct": round(operational_reserve_pct * 100.0, 1), "total_reserve_t": round(reserve_t, 2), "recommended_start_fuel_t": round(float(total_fuel_t) + reserve_t, 2), "reserve_percent": round(reserve_pct * 100.0, 1), "capacity_check_t": round(float(capacity_t) * 0.10, 2)}
 
 
 init_database()
@@ -2967,6 +3007,17 @@ if run_voyage:
 
         ))
 
+    segment_fuels = [row[9] for row in voyage_rows]
+    segment_speeds = [row[10] for row in voyage_rows]
+    segment_consumptions = [row[11] for row in voyage_rows]
+    fuel_plan = calculate_fuel_plan(total_fuel, conditions, capacity)
+    sensor_timeline = build_sensor_timeline(conditions, segment_fuels, segment_speeds, segment_consumptions, fuel_plan["recommended_start_fuel_t"])
+    for i, sensor_row in enumerate(sensor_timeline):
+        remaining_need = sum(segment_consumptions[i + 1:])
+        margin = sensor_row["fuel_remaining_t"] - remaining_need
+        sensor_row["fuel_margin_t"] = round(margin, 2)
+        sensor_row["health"] = analyze_ship_condition(sensor_row, sensor_row["weather"], sensor_row["wind_knots"], sensor_row["wave_m"], sensor_row["speed_knots"], sensor_row["fuel"], margin)
+
     save_voyage_segments(
         voyage_rows
     )
@@ -2994,7 +3045,9 @@ if run_voyage:
         total_co2,
         total_hours,
         conditions,
-        segment_display
+        segment_display,
+        sensor_timeline,
+        fuel_plan
     )
 
     st.session_state[
@@ -3022,6 +3075,14 @@ if run_voyage:
     st.session_state[
         "voyage_hours"
     ] = total_hours
+
+    st.session_state[
+        "sensor_timeline"
+    ] = sensor_timeline
+
+    st.session_state[
+        "fuel_plan"
+    ] = fuel_plan
 
     st.session_state[
         "route"
@@ -3591,6 +3652,87 @@ st.markdown(
     unsafe_allow_html=True
 
 )
+
+
+# ============================================================
+# VOYAGE FUEL PLANNING + PREDICTED SENSOR HEALTH
+# ============================================================
+
+st.markdown('<div class="section-title">⛽ Voyage Fuel Planning & Ship Health Prediction</div>', unsafe_allow_html=True)
+
+if st.session_state.get("voyage_done", False):
+    sensor_timeline = st.session_state.get("sensor_timeline", [])
+    fuel_plan = st.session_state.get("fuel_plan", {})
+else:
+    temp_conditions = conditions
+    temp_fuels, temp_speeds, temp_consumptions = [], [], []
+    for cond in temp_conditions:
+        temp_best = optimize_single_segment(capacity, segment_distance, speed, cargo, available_fuels, cond["weather"], cond["wind_speed"], cond["wave_height"], cond["current_speed"])
+        temp_fuels.append(temp_best["fuel"]); temp_speeds.append(temp_best["speed"]); temp_consumptions.append(temp_best["fuel_consumption"])
+    fuel_plan = calculate_fuel_plan(sum(temp_consumptions), temp_conditions, capacity)
+    sensor_timeline = build_sensor_timeline(temp_conditions, temp_fuels, temp_speeds, temp_consumptions, fuel_plan["recommended_start_fuel_t"])
+    for i, sensor_row in enumerate(sensor_timeline):
+        remaining_need = sum(temp_consumptions[i + 1:]); margin = sensor_row["fuel_remaining_t"] - remaining_need
+        sensor_row["fuel_margin_t"] = round(margin, 2)
+        sensor_row["health"] = analyze_ship_condition(sensor_row, sensor_row["weather"], sensor_row["wind_knots"], sensor_row["wave_m"], sensor_row["speed_knots"], sensor_row["fuel"], margin)
+
+fp1, fp2, fp3, fp4 = st.columns(4)
+fp1.metric("Base Voyage Fuel", f"{fuel_plan.get('base_requirement_t', 0):.2f} t")
+fp2.metric("Weather Reserve", f"{fuel_plan.get('weather_reserve_pct', 0):.1f}%")
+fp3.metric("Reserve Fuel", f"{fuel_plan.get('total_reserve_t', 0):.2f} t")
+fp4.metric("Recommended Start Fuel", f"{fuel_plan.get('recommended_start_fuel_t', 0):.2f} t")
+st.info(f"⛽ Recommended starting fuel: {fuel_plan.get('recommended_start_fuel_t', 0):.2f} t. This includes a modeled reserve that grows with heavier simulated weather.")
+
+if sensor_timeline:
+    sensor_df = pd.DataFrame([{
+        "Segment": r["segment"], "Weather": r["weather"], "Engine Temp (°C)": r["engine_temperature_c"],
+        "RPM": r["engine_rpm"], "Vibration (mm/s)": r["vibration_mm_s"], "Oil Pressure (bar)": r["oil_pressure_bar"],
+        "Fuel Level (%)": r["fuel_remaining_pct"], "Fuel Remaining (t)": r["fuel_remaining_t"], "Fuel Margin (t)": r["fuel_margin_t"], "Health": r["health"]["status"]
+    } for r in sensor_timeline])
+    st.markdown("### 📡 Predicted Onboard Sensor Timeline")
+    st.dataframe(sensor_df, use_container_width=True, hide_index=True)
+
+    sensor_idx = min(max(step - 1, 0), len(sensor_timeline) - 1)
+    selected_sensor = sensor_timeline[sensor_idx]; health = selected_sensor["health"]
+    st.markdown("### 🧠 Ship Condition Decision Support")
+    h1, h2, h3 = st.columns(3)
+    h1.metric("Ship Status", health["status"]); h2.metric("Engine Temperature", f"{selected_sensor['engine_temperature_c']:.1f} °C"); h3.metric("Fuel Remaining", f"{selected_sensor['fuel_remaining_t']:.2f} t")
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("RPM", f"{selected_sensor['engine_rpm']:.0f}"); s2.metric("Vibration", f"{selected_sensor['vibration_mm_s']:.2f} mm/s"); s3.metric("Oil Pressure", f"{selected_sensor['oil_pressure_bar']:.2f} bar"); s4.metric("Exhaust Temp", f"{selected_sensor['exhaust_temperature_c']:.0f} °C")
+    s5, s6, s7, s8 = st.columns(4)
+    s5.metric("Coolant Temp", f"{selected_sensor['coolant_temperature_c']:.1f} °C"); s6.metric("Fuel Temp", f"{selected_sensor['fuel_temperature_c']:.1f} °C"); s7.metric("Voltage", f"{selected_sensor['voltage_v']:.2f} V"); s8.metric("Leak Risk", f"{selected_sensor['leakage_probability']:.1f}%")
+
+    if health["status"] == "🔴 CRITICAL": st.error("🚨 CRITICAL ALERT — Follow approved vessel procedures and qualified crew instructions.")
+    elif health["status"] == "🟠 HIGH RISK": st.warning("⚠️ HIGH-RISK ALERT — Operating conditions need close attention and corrective action.")
+    elif health["status"] == "🟡 WARNING": st.warning("🟡 WARNING — A monitored condition is becoming abnormal.")
+    else: st.success("🟢 NORMAL — No prototype threshold is currently indicating an abnormal ship condition.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("#### 🔍 Why did the alert happen?")
+        for reason in (health["reasons"] or ["No abnormal cause identified in the current prototype model."]): st.write(f"• {reason}")
+        if health["alerts"]:
+            st.markdown("#### 🚨 Detected Issues")
+            for item in health["alerts"]: st.write(f"• {item}")
+    with c2:
+        st.markdown("#### 💡 Recommended Action")
+        st.info(health["primary_action"])
+        for action in health["actions"]: st.write(f"• {action}")
+        st.markdown("#### ⛽ Fuel Decision")
+        if selected_sensor["fuel_margin_t"] < 0:
+            st.error(f"Fuel risk: about {abs(selected_sensor['fuel_margin_t']):.2f} t below the modeled remaining requirement. Reduce consumption and consider refueling if available.")
+        elif selected_sensor["fuel_margin_t"] < fuel_plan.get("total_reserve_t", 0) * 0.35:
+            st.warning("Fuel reserve is becoming tight. Recalculate the remaining voyage if weather or speed changes.")
+        else:
+            st.success(f"Fuel margin is positive: {selected_sensor['fuel_margin_t']:.2f} t above the modeled remaining requirement.")
+
+    st.markdown("#### 📈 Predicted Sensor Trends")
+    trend_df = pd.DataFrame([{
+        "Segment": r["segment"], "Engine Temperature (°C)": r["engine_temperature_c"], "Coolant Temperature (°C)": r["coolant_temperature_c"],
+        "Vibration (mm/s)": r["vibration_mm_s"], "Exhaust Temperature (°C)": r["exhaust_temperature_c"], "Fuel Remaining (t)": r["fuel_remaining_t"]
+    } for r in sensor_timeline])
+    st.line_chart(trend_df.set_index("Segment"))
+    st.caption("Prototype note: these are predicted/simulated sensor readings. Real deployment requires validated telemetry, manufacturer limits, approved alarms and qualified crew decisions.")
 
 
 # ============================================================
@@ -4565,6 +4707,30 @@ if not segment_history.empty:
                     pass
 
             else:
+
+                saved_sensor_timeline = parse_json_object(voyage_report.get("sensor_timeline_json"), [])
+                saved_fuel_plan = parse_json_object(voyage_report.get("fuel_plan_json"), {})
+                if saved_sensor_timeline:
+                    st.markdown("### 📡 Saved Predicted Sensor & Health Report")
+                    sf1, sf2, sf3, sf4 = st.columns(4)
+                    sf1.metric("Recommended Start Fuel", f"{float(saved_fuel_plan.get('recommended_start_fuel_t', 0)):.2f} t")
+                    sf2.metric("Base Fuel", f"{float(saved_fuel_plan.get('base_requirement_t', 0)):.2f} t")
+                    sf3.metric("Weather Reserve", f"{float(saved_fuel_plan.get('weather_reserve_pct', 0)):.1f}%")
+                    sf4.metric("Reserve Fuel", f"{float(saved_fuel_plan.get('total_reserve_t', 0)):.2f} t")
+                    saved_sensor_df = pd.DataFrame([{
+                        "Segment": x.get("segment"), "Weather": x.get("weather"), "Engine Temp (°C)": x.get("engine_temperature_c"),
+                        "RPM": x.get("engine_rpm"), "Vibration": x.get("vibration_mm_s"), "Fuel Remaining (t)": x.get("fuel_remaining_t"),
+                        "Fuel Margin (t)": x.get("fuel_margin_t"), "Health": x.get("health", {}).get("status", "Legacy")
+                    } for x in saved_sensor_timeline])
+                    st.dataframe(saved_sensor_df, use_container_width=True, hide_index=True)
+                    selected_no = int(selected_segment.get("Segment", 1))
+                    saved_sensor = saved_sensor_timeline[min(max(selected_no - 1, 0), len(saved_sensor_timeline) - 1)]
+                    saved_health = saved_sensor.get("health", {})
+                    rr1, rr2 = st.columns(2)
+                    with rr1:
+                        st.write(f"**Possible reasons:** {', '.join(saved_health.get('reasons', [])) or 'No abnormal cause identified.'}")
+                    with rr2:
+                        st.write(f"**Recommended action:** {saved_health.get('primary_action', 'Continue monitoring.')}")
 
                 # Legacy voyage records were saved before complete voyage
                 # snapshots existed. Never recalculate them from today's data.
