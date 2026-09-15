@@ -1866,6 +1866,140 @@ def optimize_single_segment(
 
 
 # ============================================================
+# SHIP VISUALIZATION + MULTI-CLIENT FLEET ALLOCATION
+# ============================================================
+
+def ship_3d_svg(vessel_type):
+    """Return a self-contained 3D-style SVG illustration for the selected vessel."""
+    designs = {
+        "Container Ship": {
+            "title": "Container Ship", "accent": "#7c3aed",
+            "svg": """<svg viewBox="0 0 620 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="3D-style Container Ship">
+<defs><linearGradient id="csea" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#111827"/><stop offset="1" stop-color="#312e81"/></linearGradient><linearGradient id="chull" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f8fafc"/><stop offset="1" stop-color="#94a3b8"/></linearGradient></defs>
+<rect width="620" height="330" rx="28" fill="url(#csea)"/><ellipse cx="310" cy="280" rx="245" ry="20" fill="#020617" opacity=".45"/>
+<path d="M90 214 L510 214 L462 263 L145 263 Z" fill="url(#chull)" stroke="#e2e8f0" stroke-width="4"/><path d="M115 238 L486 238" stroke="#475569" stroke-width="7"/><path d="M122 203 L470 203 L445 225 L138 225 Z" fill="#334155"/>
+<g stroke="#e2e8f0" stroke-width="2"><g fill="#ef4444"><rect x="150" y="166" width="52" height="36"/><rect x="206" y="166" width="52" height="36"/><rect x="262" y="166" width="52" height="36"/><rect x="318" y="166" width="52" height="36"/><rect x="374" y="166" width="52" height="36"/></g><g fill="#22c55e"><rect x="165" y="128" width="52" height="36"/><rect x="221" y="128" width="52" height="36"/><rect x="277" y="128" width="52" height="36"/><rect x="333" y="128" width="52" height="36"/></g><g fill="#3b82f6"><rect x="181" y="90" width="52" height="36"/><rect x="237" y="90" width="52" height="36"/><rect x="293" y="90" width="52" height="36"/><rect x="349" y="90" width="52" height="36"/></g></g>
+<path d="M422 105 L480 105 L480 203 L422 203 Z" fill="#e5e7eb" stroke="#94a3b8" stroke-width="3"/><rect x="435" y="122" width="32" height="22" rx="3" fill="#38bdf8"/><rect x="435" y="150" width="32" height="22" rx="3" fill="#38bdf8"/>
+<text x="310" y="306" fill="white" font-size="24" font-family="Arial" text-anchor="middle" font-weight="700">CONTAINER SHIP</text></svg>"""
+        },
+        "Bulk Carrier": {
+            "title": "Bulk Carrier", "accent": "#f59e0b",
+            "svg": """<svg viewBox="0 0 620 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="3D-style Bulk Carrier">
+<defs><linearGradient id="bsea" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#111827"/><stop offset="1" stop-color="#164e63"/></linearGradient><linearGradient id="bhull" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f1f5f9"/><stop offset="1" stop-color="#64748b"/></linearGradient></defs>
+<rect width="620" height="330" rx="28" fill="url(#bsea)"/><ellipse cx="310" cy="280" rx="245" ry="20" fill="#020617" opacity=".45"/>
+<path d="M88 216 L515 216 L463 264 L140 264 Z" fill="url(#bhull)" stroke="#cbd5e1" stroke-width="4"/><path d="M118 238 L486 238" stroke="#475569" stroke-width="7"/>
+<g fill="#475569" stroke="#cbd5e1" stroke-width="3"><path d="M130 203 L185 203 L175 118 L145 118 Z"/><path d="M195 203 L250 203 L240 118 L210 118 Z"/><path d="M260 203 L315 203 L305 118 L275 118 Z"/><path d="M325 203 L380 203 L370 118 L340 118 Z"/></g><g fill="#94a3b8"><path d="M136 124 L177 124 L169 108 L144 108 Z"/><path d="M201 124 L242 124 L234 108 L209 108 Z"/><path d="M266 124 L307 124 L299 108 L274 108 Z"/><path d="M331 124 L372 124 L364 108 L339 108 Z"/></g>
+<path d="M420 100 L480 100 L480 216 L420 216 Z" fill="#e2e8f0" stroke="#94a3b8" stroke-width="3"/><rect x="433" y="120" width="34" height="23" rx="3" fill="#0ea5e9"/><rect x="433" y="150" width="34" height="23" rx="3" fill="#0ea5e9"/>
+<text x="310" y="306" fill="white" font-size="24" font-family="Arial" text-anchor="middle" font-weight="700">BULK CARRIER</text></svg>"""
+        },
+        "Tanker": {
+            "title": "Tanker", "accent": "#ef4444",
+            "svg": """<svg viewBox="0 0 620 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="3D-style Tanker">
+<defs><linearGradient id="tsea" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1e1b4b"/><stop offset="1" stop-color="#7f1d1d"/></linearGradient><linearGradient id="thull" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f8fafc"/><stop offset="1" stop-color="#94a3b8"/></linearGradient></defs>
+<rect width="620" height="330" rx="28" fill="url(#tsea)"/><ellipse cx="310" cy="280" rx="245" ry="20" fill="#020617" opacity=".5"/>
+<path d="M82 214 L515 214 L462 264 L135 264 Z" fill="url(#thull)" stroke="#e2e8f0" stroke-width="4"/><path d="M115 238 L486 238" stroke="#475569" stroke-width="7"/>
+<path d="M132 205 Q150 151 190 151 Q230 151 248 205 Z" fill="#64748b" stroke="#cbd5e1" stroke-width="3"/><path d="M250 205 Q268 151 308 151 Q348 151 366 205 Z" fill="#64748b" stroke="#cbd5e1" stroke-width="3"/><path d="M368 205 Q386 151 426 151 Q466 151 484 205 Z" fill="#64748b" stroke="#cbd5e1" stroke-width="3"/>
+<g fill="#94a3b8" stroke="#e2e8f0" stroke-width="2"><ellipse cx="190" cy="178" rx="23" ry="11"/><ellipse cx="308" cy="178" rx="23" ry="11"/><ellipse cx="426" cy="178" rx="23" ry="11"/></g>
+<path d="M423 104 L482 104 L482 214 L423 214 Z" fill="#f1f5f9" stroke="#94a3b8" stroke-width="3"/><rect x="436" y="121" width="33" height="22" rx="3" fill="#38bdf8"/><rect x="436" y="149" width="33" height="22" rx="3" fill="#38bdf8"/>
+<text x="310" y="306" fill="white" font-size="24" font-family="Arial" text-anchor="middle" font-weight="700">TANKER</text></svg>"""
+        },
+        "Cargo Ship": {
+            "title": "Cargo Ship", "accent": "#22c55e",
+            "svg": """<svg viewBox="0 0 620 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="3D-style Cargo Ship">
+<defs><linearGradient id="gsea" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#052e16"/><stop offset="1" stop-color="#164e63"/></linearGradient><linearGradient id="ghull" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f8fafc"/><stop offset="1" stop-color="#94a3b8"/></linearGradient></defs>
+<rect width="620" height="330" rx="28" fill="url(#gsea)"/><ellipse cx="310" cy="280" rx="245" ry="20" fill="#020617" opacity=".45"/>
+<path d="M85 215 L515 215 L463 264 L138 264 Z" fill="url(#ghull)" stroke="#e2e8f0" stroke-width="4"/><path d="M116 239 L486 239" stroke="#475569" stroke-width="7"/>
+<path d="M122 204 L402 204 L385 145 L145 145 Z" fill="#475569" stroke="#cbd5e1" stroke-width="3"/><g fill="#38bdf8" stroke="#e0f2fe" stroke-width="2"><rect x="158" y="157" width="38" height="27" rx="3"/><rect x="203" y="157" width="38" height="27" rx="3"/><rect x="248" y="157" width="38" height="27" rx="3"/><rect x="293" y="157" width="38" height="27" rx="3"/><rect x="338" y="157" width="38" height="27" rx="3"/></g>
+<path d="M405 98 L478 98 L478 215 L405 215 Z" fill="#e2e8f0" stroke="#94a3b8" stroke-width="3"/><rect x="420" y="116" width="38" height="24" rx="3" fill="#0ea5e9"/><rect x="420" y="147" width="38" height="24" rx="3" fill="#0ea5e9"/><path d="M432 83 L432 98 M455 83 L455 98 M432 83 L455 83" stroke="#f8fafc" stroke-width="4"/>
+<text x="310" y="306" fill="white" font-size="24" font-family="Arial" text-anchor="middle" font-weight="700">CARGO SHIP</text></svg>"""
+        }
+    }
+    return designs.get(vessel_type, designs["Cargo Ship"])
+
+
+def render_ship_visual(vessel_type):
+    """Display the selected vessel as a dynamic 3D-style visual."""
+    design = ship_3d_svg(vessel_type)
+    html = (
+        f'<div style="background:rgba(13,37,45,.82);border:1px solid {design["accent"]};'
+        f'border-radius:18px;padding:12px;box-shadow:0 12px 30px rgba(0,0,0,.25);text-align:center;">'
+        f'{design["svg"]}'
+        f'<div style="font-weight:700;color:{design["accent"]};font-size:17px;margin-top:2px;">'
+        f'Selected: {design["title"]}</div></div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def multi_client_fleet_allocation(fleet_df, orders):
+    """Compare simultaneous orders and allocate limited ships by priority."""
+    remaining_fleet = fleet_df.copy().reset_index(drop=True)
+    rows = []
+    allocation = []
+    ordered = sorted(
+        enumerate(orders, start=1),
+        key=lambda item: (
+            int(item[1].get("priority", 3)),
+            float(item[1].get("deadline_days", 9999)),
+            -float(item[1].get("cargo_t", 0)),
+            item[0]
+        )
+    )
+
+    for original_number, order in ordered:
+        result = fleet_order_optimization(
+            remaining_fleet, order["origin"], order["destination"],
+            float(order["cargo_t"]), float(order["deadline_days"]), order["weather"]
+        )
+        selected = result.get("selected", pd.DataFrame()).copy() if result else pd.DataFrame()
+        shortfall = float(result.get("cargo_shortfall", order["cargo_t"])) if result else float(order["cargo_t"])
+        fully_served = (not selected.empty) and shortfall <= 0.0001
+
+        if fully_served:
+            assigned_ids = set(selected["ship_id"].astype(str))
+            remaining_fleet = remaining_fleet[
+                ~remaining_fleet["ship_id"].astype(str).isin(assigned_ids)
+            ].reset_index(drop=True)
+            status = "✅ Allocated"
+            assigned_count = len(selected)
+            assigned_capacity = float(selected["capacity_t"].sum())
+            total_fuel = float(selected["fuel_t"].sum())
+            total_cost = float(selected["fuel_cost"].sum())
+            total_co2 = float(selected["co2_t"].sum())
+            eta = float(selected["eta_days"].max())
+            ship_ids = ", ".join(selected["ship_id"].astype(str).tolist())
+        else:
+            status = "❌ Rejected / Waitlisted"
+            assigned_count = 0
+            assigned_capacity = 0.0
+            total_fuel = total_cost = total_co2 = eta = 0.0
+            ship_ids = "—"
+
+        rows.append({
+            "Order": f"Order {original_number}", "Client": order["client"],
+            "Priority": int(order["priority"]),
+            "Route": f"{order['origin']} → {order['destination']}",
+            "Cargo (t)": float(order["cargo_t"]),
+            "Deadline (days)": float(order["deadline_days"]),
+            "Weather": order["weather"], "Ships": assigned_count,
+            "Assigned Capacity (t)": assigned_capacity, "Fuel (t)": total_fuel,
+            "Fuel Cost (₹)": total_cost, "CO₂ (t)": total_co2, "ETA (days)": eta,
+            "Status": status, "Assigned Ship IDs": ship_ids
+        })
+        allocation.append({
+            "order_number": original_number, "client": order["client"],
+            "priority": int(order["priority"]), "status": status,
+            "selected": selected if fully_served else pd.DataFrame(),
+            "result": result, "order": order,
+        })
+
+    return {
+        "summary": pd.DataFrame(rows), "allocation": allocation,
+        "remaining_fleet": remaining_fleet,
+        "available_before": int(len(fleet_df)), "available_after": int(len(remaining_fleet)),
+    }
+
+
+# ============================================================
 # HEADER
 # ============================================================
 
@@ -1910,7 +2044,8 @@ vessel_type = st.sidebar.selectbox(
         "Bulk Carrier",
         "Tanker",
         "Cargo Ship"
-    ]
+    ],
+    key="main_vessel_type"
 
 )
 
@@ -2074,6 +2209,15 @@ predict_button = st.sidebar.button(
     use_container_width=True
 
 )
+
+
+# ============================================================
+# SELECTED VESSEL VISUALIZATION
+# ============================================================
+
+ship_visual_left, ship_visual_right = st.columns([3, 1])
+with ship_visual_right:
+    render_ship_visual(vessel_type)
 
 
 # ============================================================
@@ -2370,6 +2514,140 @@ if "fleet_order_result" in st.session_state:
             "Prototype note: recommended speeds and weather effects are model estimates, not certified maritime safety limits. "
             "Real deployment should use approved company vessel specifications, manufacturer/class limits, live weather/telemetry and qualified crew decisions."
         )
+
+
+# ============================================================
+# MULTI-CLIENT FLEET ALLOCATION
+# ============================================================
+
+st.markdown(
+    '<div class="section-title">👥 Multi-Client Fleet Allocation & Priority Optimization</div>',
+    unsafe_allow_html=True
+)
+st.info(
+    "When multiple customer orders arrive at the same time, the system compares "
+    "all orders, applies the selected priority rules, allocates the limited fleet "
+    "without double-assigning a ship, and rejects/waitlists an order when the "
+    "remaining fleet cannot fully satisfy it."
+)
+
+multi_count = st.number_input(
+    "Number of simultaneous customer orders",
+    min_value=2, max_value=50, value=3, step=1, key="multi_client_count"
+)
+
+multi_orders = []
+for i in range(int(multi_count)):
+    default_origin = "Chennai, India" if "Chennai, India" in WORLD_PORTS else list(WORLD_PORTS.keys())[0]
+    default_destination = "Mumbai, India" if "Mumbai, India" in WORLD_PORTS else list(WORLD_PORTS.keys())[1]
+    with st.expander(f"📦 Customer Order {i + 1}", expanded=(i < 3)):
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            client_name = st.text_input("Client Name", value=f"Client {i + 1}", key=f"multi_client_name_{i}")
+        with m2:
+            priority = st.selectbox(
+                "Priority (1 = highest)", [1, 2, 3, 4, 5], index=min(i, 4), key=f"multi_priority_{i}"
+            )
+        with m3:
+            cargo_t = st.number_input(
+                "Cargo (tonnes)", min_value=100.0, max_value=10000000.0,
+                value=float(100000 if i == 0 else 50000 if i == 1 else 35000),
+                step=1000.0, key=f"multi_cargo_{i}"
+            )
+        m4, m5, m6 = st.columns(3)
+        with m4:
+            origin = st.selectbox(
+                "From", list(WORLD_PORTS.keys()), index=list(WORLD_PORTS.keys()).index(default_origin), key=f"multi_origin_{i}"
+            )
+        with m5:
+            destination = st.selectbox(
+                "To", list(WORLD_PORTS.keys()), index=list(WORLD_PORTS.keys()).index(default_destination), key=f"multi_destination_{i}"
+            )
+        with m6:
+            deadline_days = st.number_input(
+                "Required Delivery (days)", min_value=0.5, max_value=365.0,
+                value=float(5 + i), step=0.5, key=f"multi_deadline_{i}"
+            )
+        weather_choice = st.selectbox(
+            "Route Weather", ["Calm Sea", "Normal", "Moderate", "Heavy Weather", "Storm"], key=f"multi_weather_{i}"
+        )
+        multi_orders.append({
+            "client": client_name.strip() or f"Client {i + 1}", "priority": int(priority),
+            "cargo_t": float(cargo_t), "origin": origin, "destination": destination,
+            "deadline_days": float(deadline_days), "weather": weather_choice,
+        })
+
+multi_compare_button = st.button(
+    "⚛️ Compare All Orders & Allocate Fleet", type="primary", use_container_width=True, key="multi_client_optimize"
+)
+
+if multi_compare_button:
+    invalid_routes = [idx + 1 for idx, order in enumerate(multi_orders) if order["origin"] == order["destination"]]
+    if invalid_routes:
+        st.error("From and To ports must be different for orders: " + ", ".join(f"Order {n}" for n in invalid_routes) + ".")
+    else:
+        multi_result = multi_client_fleet_allocation(fleet_df, multi_orders)
+        st.session_state["multi_client_result"] = multi_result
+        st.session_state["multi_client_orders"] = multi_orders
+
+if "multi_client_result" in st.session_state:
+    multi_result = st.session_state["multi_client_result"]
+    multi_summary = multi_result["summary"].copy()
+    st.markdown("#### 🔎 All Orders Compared")
+    comparison_view = multi_summary[[
+        "Order", "Client", "Priority", "Route", "Cargo (t)", "Deadline (days)", "Weather", "Ships", "Status"
+    ]].copy()
+    st.dataframe(comparison_view, use_container_width=True, hide_index=True)
+
+    allocated_rows = multi_summary[multi_summary["Status"].eq("✅ Allocated")]
+    rejected_rows = multi_summary[multi_summary["Status"].eq("❌ Rejected / Waitlisted")]
+    a1, a2, a3, a4 = st.columns(4)
+    with a1: st.metric("Orders", len(multi_summary))
+    with a2: st.metric("Orders Served", len(allocated_rows))
+    with a3: st.metric("Orders Rejected / Waitlisted", len(rejected_rows))
+    with a4: st.metric("Ships Remaining", multi_result["available_after"])
+
+    for item in multi_result["allocation"]:
+        if item["status"] != "✅ Allocated":
+            order = item["order"]
+            result = item.get("result") or {}
+            shortfall = float(result.get("cargo_shortfall", order["cargo_t"]))
+            st.warning(
+                f"⚠️ {item['client']} (Priority {item['priority']}) was **rejected/waitlisted** because "
+                f"the remaining fleet could not fully carry the requested **{order['cargo_t']:,.0f} t**. "
+                f"Cargo shortfall: **{shortfall:,.0f} t**. Higher-priority allocated orders keep their ships reserved."
+            )
+
+    with st.expander("🚢 Detailed allocation for each client", expanded=True):
+        for item in multi_result["allocation"]:
+            if item["status"] != "✅ Allocated":
+                continue
+            selected = item["selected"].copy(); order = item["order"]; result = item["result"]
+            st.markdown(f"**{item['client']} — Priority {item['priority']} — {len(selected)} ships allocated**")
+            detail = selected[[
+                "ship_id", "current_location", "capacity_t", "fuel", "planned_speed_kn", "eta_days", "fuel_t", "fuel_cost", "co2_t", "health"
+            ]].copy()
+            detail.columns = [
+                "Ship ID", "Current Location", "Capacity (t)", "Fuel", "Recommended Speed (kn)", "ETA (days)", "Fuel (t)", "Fuel Cost (₹)", "CO₂ (t)", "Health"
+            ]
+            st.dataframe(detail, use_container_width=True, hide_index=True)
+            st.caption(
+                f"Route: {order['origin']} → {order['destination']} | Cargo: {order['cargo_t']:,.0f} t | "
+                f"Weather: {order['weather']} | Estimated route distance: {result['route_km']:,.0f} km"
+            )
+
+    st.markdown("#### 🧠 Multi-client decision logic")
+    st.write(
+        "The system compares the incoming orders using Priority (1 = highest), delivery deadline, and cargo demand. "
+        "It allocates ships to the highest-priority order first, removes those ships from the available pool, and "
+        "continues with the next order. If the remaining fleet cannot completely satisfy a lower-priority order, "
+        "that order is rejected/waitlisted and its partial selection is not reserved. This prevents the same ship "
+        "from being assigned to two clients at the same time."
+    )
+    st.caption(
+        "Prototype allocation note: in a real company, order priority, contracts, port slots, live vessel availability, "
+        "crew constraints, maintenance schedules and dispatch approval would be connected to the production fleet-management system."
+    )
 
 
 # ============================================================
