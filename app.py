@@ -4176,6 +4176,15 @@ if not history_df.empty:
             "selected_prediction_id"
         ] = selected_prediction_id
 
+    else:
+
+        # When the user unchecks/deselects the row, immediately close
+        # the saved report by clearing the remembered selection.
+        st.session_state.pop(
+            "selected_prediction_id",
+            None
+        )
+
     selected_prediction_id = st.session_state.get(
         "selected_prediction_id"
     )
@@ -4463,6 +4472,15 @@ if not segment_history.empty:
         st.session_state[
             "selected_voyage_segment_id"
         ] = selected_voyage_id
+
+    else:
+
+        # When the user unchecks/deselects the row, immediately close
+        # the complete saved voyage report.
+        st.session_state.pop(
+            "selected_voyage_segment_id",
+            None
+        )
 
     selected_voyage_id = st.session_state.get(
         "selected_voyage_segment_id"
