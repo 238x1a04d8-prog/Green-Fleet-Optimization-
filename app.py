@@ -320,6 +320,14 @@ def load_company_fleet():
         return None, None, None
 
 
+def delete_company_fleet():
+    """Delete the stored company fleet and return the app to the upload/demo state."""
+    conn = sqlite3.connect(DB_NAME)
+    conn.execute("DELETE FROM company_fleet")
+    conn.commit()
+    conn.close()
+
+
 def fleet_weather_profile(weather):
     """Convert one simple weather input into modelled route conditions."""
     profiles = {
@@ -2168,6 +2176,30 @@ with fc4:
     st.metric("Fuel Types", fleet_df["fuel"].nunique())
 
 st.caption(f"Stored fleet source: **{st.session_state.get('company_fleet_source', 'Saved company fleet')}**")
+
+# Allow the company to remove the currently stored fleet, just like the
+# existing history clear actions. This removes only the saved fleet snapshot;
+# prediction/voyage histories remain untouched.
+delete_fleet_col1, delete_fleet_col2 = st.columns([4, 1])
+with delete_fleet_col2:
+    delete_fleet_button = st.button(
+        "🗑️ Delete Fleet",
+        use_container_width=True,
+        key="delete_company_fleet"
+    )
+
+if delete_fleet_button:
+    delete_company_fleet()
+    for fleet_state_key in [
+        "company_fleet_df",
+        "company_fleet_source",
+        "last_company_fleet_hash",
+        "fleet_order_result",
+        "fleet_order_meta",
+    ]:
+        st.session_state.pop(fleet_state_key, None)
+    st.success("🗑️ Stored company fleet deleted. You can upload a new company fleet or generate a demo fleet.")
+    st.rerun()
 
 with st.expander("🔎 Fleet details automatically loaded from company data", expanded=True):
     st.dataframe(
