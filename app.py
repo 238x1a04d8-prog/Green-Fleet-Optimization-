@@ -4706,7 +4706,7 @@ if not segment_history.empty:
                 except Exception:
                     pass
 
-            else:
+
 
                 saved_sensor_timeline = parse_json_object(voyage_report.get("sensor_timeline_json"), [])
                 saved_fuel_plan = parse_json_object(voyage_report.get("fuel_plan_json"), {})
@@ -4732,68 +4732,69 @@ if not segment_history.empty:
                     with rr2:
                         st.write(f"**Recommended action:** {saved_health.get('primary_action', 'Continue monitoring.')}")
 
-                # Legacy voyage records were saved before complete voyage
-                # snapshots existed. Never recalculate them from today's data.
-                st.warning(
-                    "This is a legacy voyage record created before the complete "
-                    "saved-voyage snapshot feature was added. The original segment "
-                    "values below are preserved exactly; route-level details were not "
-                    "stored in that older record."
-                )
-
-                legacy_col1, legacy_col2 = st.columns(2)
-
-                with legacy_col1:
-
-                    st.markdown(
-                        f"""
-                        <div class="card">
-                        <h3>📋 Selected Saved Segment</h3>
-                        <b>ID:</b> {int(selected_segment['ID'])}<br>
-                        <b>Date & Time:</b> {selected_segment['Date & Time']}<br>
-                        <b>Segment:</b> {int(selected_segment['Segment'])}<br>
-                        <b>Distance:</b> {float(selected_segment['Distance (km)']):,.2f} km<br>
-                        <b>Weather:</b> {selected_segment['Weather']}<br>
-                        <b>Wind:</b> {float(selected_segment['Wind (knots)']):.2f} kn<br>
-                        <b>Wave:</b> {float(selected_segment['Wave (m)']):.2f} m<br>
-                        <b>Current:</b> {float(selected_segment['Current (knots)']):.2f} kn
-                        </div>
-                        """,
-                        unsafe_allow_html=True
+            else:
+                    # Legacy voyage records were saved before complete voyage
+                    # snapshots existed. Never recalculate them from today's data.
+                    st.warning(
+                        "This is a legacy voyage record created before the complete "
+                        "saved-voyage snapshot feature was added. The original segment "
+                        "values below are preserved exactly; route-level details were not "
+                        "stored in that older record."
                     )
 
-                with legacy_col2:
+                    legacy_col1, legacy_col2 = st.columns(2)
 
-                    st.markdown(
-                        f"""
-                        <div class="success-box">
-                        <h3>📤 Saved Segment Result</h3>
-                        <b>Fuel:</b> {selected_segment['Fuel']}<br>
-                        <b>Speed:</b> {float(selected_segment['Speed (knots)']):.1f} kn<br>
-                        <b>Fuel Consumption:</b> {float(selected_segment['Fuel (t)']):.4f} t<br>
-                        <b>CO₂:</b> {float(selected_segment['CO₂ (t)']):.4f} t<br>
-                        <b>Cost:</b> ₹{float(selected_segment['Cost (₹)']):,.2f}<br>
-                        <b>Alert:</b> {selected_segment['Alert']}
-                        </div>
-                        """,
-                        unsafe_allow_html=True
+                    with legacy_col1:
+
+                        st.markdown(
+                            f"""
+                            <div class="card">
+                            <h3>📋 Selected Saved Segment</h3>
+                            <b>ID:</b> {int(selected_segment['ID'])}<br>
+                            <b>Date & Time:</b> {selected_segment['Date & Time']}<br>
+                            <b>Segment:</b> {int(selected_segment['Segment'])}<br>
+                            <b>Distance:</b> {float(selected_segment['Distance (km)']):,.2f} km<br>
+                            <b>Weather:</b> {selected_segment['Weather']}<br>
+                            <b>Wind:</b> {float(selected_segment['Wind (knots)']):.2f} kn<br>
+                            <b>Wave:</b> {float(selected_segment['Wave (m)']):.2f} m<br>
+                            <b>Current:</b> {float(selected_segment['Current (knots)']):.2f} kn
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                    with legacy_col2:
+
+                        st.markdown(
+                            f"""
+                            <div class="success-box">
+                            <h3>📤 Saved Segment Result</h3>
+                            <b>Fuel:</b> {selected_segment['Fuel']}<br>
+                            <b>Speed:</b> {float(selected_segment['Speed (knots)']):.1f} kn<br>
+                            <b>Fuel Consumption:</b> {float(selected_segment['Fuel (t)']):.4f} t<br>
+                            <b>CO₂:</b> {float(selected_segment['CO₂ (t)']):.4f} t<br>
+                            <b>Cost:</b> ₹{float(selected_segment['Cost (₹)']):,.2f}<br>
+                            <b>Alert:</b> {selected_segment['Alert']}
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                    legacy_fuel_fig = create_3d_bar_chart(
+                        ["Saved Segment Fuel"],
+                        [float(selected_segment["Fuel (t)"])],
+                        "Saved Segment Fuel",
+                        "Fuel (tonnes)"
                     )
 
-                legacy_fuel_fig = create_3d_bar_chart(
-                    ["Saved Segment Fuel"],
-                    [float(selected_segment["Fuel (t)"])],
-                    "Saved Segment Fuel",
-                    "Fuel (tonnes)"
-                )
+                    st.pyplot(
+                        legacy_fuel_fig,
+                        use_container_width=True
+                    )
 
-                st.pyplot(
-                    legacy_fuel_fig,
-                    use_container_width=True
-                )
-
-                plt.close(
-                    legacy_fuel_fig
-                )
+                    plt.close(
+                        legacy_fuel_fig
+                    )
 
 else:
 
